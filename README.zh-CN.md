@@ -28,7 +28,7 @@
 | 2 | [只杀进程组 leader 会泄漏后代并阻塞后续任务](entries/leader-only-kill-leaks-descendants/) | 测试稳定卡在同一百分比、委派反复失败——因为一个谁也看不见的进程已经占住了它们要用的资源 | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | 大量时间浪费在误诊上:症状出现在无辜的代码里,而争用状态下做的任何 A/B 实验都只是抛硬币 | 用 `start_new_session=True` 生成;teardown 时对**进程组**发信号并 reap——两半都要,否则只是把孤儿换成僵尸 |
 | 3 | [静默的空 turn:一个属于另一个后端的模型名](entries/silent-empty-turn-cross-backend-model-mismatch/) | agent「已读不回」——turn 正常结束、CLI 退出码 0、事件流以成功收尾,里面就是没有回答 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 六天里三个互不相干的上游故障长着同一张脸,而最自然的第一假设「模型自己选择不回答」既合理又错误 | 对成功**产出了什么**做断言:终态成功却没有任何助手输出即判为错误。外加一道 spawn 前校验(模型名是否属于将要运行它的后端),以及诊断第一条命令用 `which -a` 而非 `which` |
 
-| 4 | [长上下文会话烧钱的两种方式,没有一种是思考](entries/context-burn-two-modes/) | 什么都没坏:turn 正常完成、工具正常调用、测试正常通过——而一个跑了 131 秒、只产出 3,080 token 的 turn 被计费 $20.6988(列表价等值),两个互不相干的会话相隔 81 秒一起飙升 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) ![mechanism simulation](https://img.shields.io/badge/evidence-mechanism%20simulation-yellow) | 某会话 90.8% 的成本花在搬运上下文而非生成任何内容上,输出行只占 9.2%。最自然的假设「模型想太多了」看似合理,却连账单的十分之一都不值 | 给会规模化的那个量装仪表:每个活跃会话的上下文 token 占窗口比例。到水位线就退休会话,而不是再丢一个任务进去——账本记了窗口却没记水位,所以这需要新增字段,而不只是新查询 |
+| 4 | [长上下文会话烧钱的两种方式,没有一种是思考](entries/context-burn-two-modes/) | 什么都没坏:turn 正常完成、工具正常调用、测试正常通过——而一个跑了 131 秒、只产出 3,080 token 的 turn 被计费 $20.6988(列表价等值),两个互不相干的会话相隔 81 秒一起飙升 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) ![mechanism simulation](https://img.shields.io/badge/evidence-mechanism%20simulation-yellow) | 某会话 90.8% 的成本花在搬运上下文而非生成任何内容上,输出行只占 9.2%。最自然的假设「模型想太多了」瞄准的是四条成本线里最小的那条 | 给会规模化的那个量装仪表:每个活跃会话的上下文 token 占窗口比例。到水位线就退休会话,而不是再丢一个任务进去——账本记了窗口却没记水位,所以这需要新增字段,而不只是新查询 |
 
 后续条目在各自证据成熟后逐条发布,不攒批。
 

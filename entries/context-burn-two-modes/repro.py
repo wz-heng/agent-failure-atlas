@@ -104,7 +104,7 @@ def when(turn: dict) -> datetime:
 
 
 # ===========================================================================
-# Oracle 1 — the pricing model reconciles, and it identifies the cache TTL
+# Oracle 1 — the pricing model reconciles, and identifies the billed cache SKU
 # ===========================================================================
 def oracle_pricing_model(all_turns: list[dict]) -> None:
     """Every cost figure downstream is a *decomposition* of a provider-reported
@@ -112,9 +112,15 @@ def oracle_pricing_model(all_turns: list[dict]) -> None:
     list-price formula reproduces the CLI's own reported cost, to within 0.1%,
     on essentially every turn in the corpus.
 
-    It also settles which cache TTL was in play — from billing, not from
-    recollection. The 5-minute and 1-hour TTLs have different write prices
-    (1.25x vs 2x input), so the reported costs can only match one of them.
+    It also settles which cache SKU the CLI's cost calculator applies — from
+    billing arithmetic rather than from recollection. The 5-minute and 1-hour
+    TTLs have different published write prices (1.25x vs 2x input), so the
+    reported costs can only match one of them.
+
+    Read that precisely. It identifies THE RATE BEING BILLED, which is a fact
+    about the price list. It does NOT establish that any particular cache entry
+    survived an hour and then expired — nothing in this ledger observes the
+    lifetime of a cache entry at all.
     """
     print("\nOracle 1 — the list-price model reproduces the reported cost")
 
@@ -143,16 +149,17 @@ def oracle_pricing_model(all_turns: list[dict]) -> None:
         f"{hit_1h}/{total} turns reconcile exactly; {miss_1h} do not",
     )
     # The load-bearing half: it is not that 1h fits well, it is that 5m fits
-    # *nothing*. A model that matched both would identify no TTL at all.
+    # *nothing*. A model that matched both would identify no SKU at all.
     check(
         "5-minute-TTL rates reproduce NONE of them",
         hit_5m == 0,
         f"{hit_5m}/{total} turns reconcile at the 1.25x write rate",
     )
     check(
-        "so the cache being paid for is the 1-hour TTL",
+        "so the rate being billed is the 1-hour cache SKU",
         hit_1h > 0 and hit_5m == 0,
-        "cache writes bill at 2.00x the model's input price, not 1.25x",
+        "cache writes bill at 2.00x the model's input price, not 1.25x "
+        "(a fact about the price list, not about any entry's lifetime)",
     )
 
 
@@ -214,9 +221,9 @@ def oracle_hot_reread(turns: list[dict]) -> None:
 
 
 # ===========================================================================
-# Oracle 3 — mode B, the wakeup tax
+# Oracle 3 — mode B, the cold rewrite
 # ===========================================================================
-def oracle_wakeup_tax(turns_b: list[dict], turns_c: list[dict]) -> None:
+def oracle_cold_rewrite(turns_b: list[dict], turns_c: list[dict]) -> None:
     """Mode B: turns billed for rewriting their context back into the cache,
     at the 2x write rate rather than the 0.1x read rate.
 
@@ -286,11 +293,12 @@ def oracle_ttl_is_not_a_predictor(traces: dict[str, list[dict]]) -> None:
     """The honest oracle, and the reason this entry is graded the way it is.
 
     "The session went idle past the TTL, so the cache expired, so the next turn
-    rewrote it" is a mechanism story. The traces support it *in distribution*:
-    turns following a >1h gap rewrite a far larger share of their context than
-    turns following a short gap. They do NOT support it per-turn: there are
-    long-gap turns that rewrite almost nothing, and short-gap turns that
-    rewrite almost everything.
+    rewrote it" is a mechanism story. These traces show a pooled association
+    CONSISTENT WITH it — not support for it: turns following a >1h gap rewrite a
+    larger share of their context than turns following a short gap. Nothing here
+    joins the association to the mechanism. And per-turn it fails outright:
+    there are long-gap turns that rewrite almost nothing, and short-gap turns
+    that rewrite almost everything.
 
     This oracle asserts BOTH halves, so the entry's prose cannot quietly grow
     into "idle time causes rewrites" — a claim these traces cannot carry.
@@ -358,7 +366,7 @@ def main() -> int:
 
     oracle_pricing_model(every_turn)
     oracle_hot_reread(traces["A"])
-    oracle_wakeup_tax(traces["B"], traces["C"])
+    oracle_cold_rewrite(traces["B"], traces["C"])
     oracle_ttl_is_not_a_predictor(traces)
 
     print()

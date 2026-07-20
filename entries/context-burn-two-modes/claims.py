@@ -25,6 +25,7 @@ thesis is that you should assert on what you actually produced.
 
 from __future__ import annotations
 
+import re
 import statistics
 import sys
 from datetime import datetime
@@ -56,6 +57,112 @@ TRACE_DIGESTS = {
         "c7bc5326fad7d455ca8c6f72acd02eb9f10604c3a7dae5900ebe658b558c8b34",
     "hot_reread_A.jsonl":
         "997ab986283d73695b61b7063fc6e39ed7a5f1437ddb14dff7031ee092d59b82",
+}
+
+
+
+# --- where each claim must appear, and how many times ----------------------
+# A reviewer showed that `literal in readme` is not a location check: "20"
+# occurs 41 times in this file, so changing one of three occurrences of a
+# figure left the checker green. Each claim is therefore bound to specific
+# files with an EXACT expected match count. Change one of three occurrences
+# and the count drops to two, and --check goes red.
+#
+# For figures whose literal is a short number that recurs incidentally
+# ("20", "six", "95"), a context ANCHOR regex replaces the bare literal so the
+# count is not hostage to unrelated prose. Everything else uses the literal with
+# numeric boundaries, so "20" does not match inside "2026" or "20,000".
+#
+# Known limitation, stated rather than papered over: this pins how MANY times a
+# figure appears in each file, not which sentence each occurrence sits in.
+# Moving a correct figure from one paragraph to another inside the same file is
+# not detected. Editing, deleting, or duplicating one is.
+ANCHORS: dict[str, str] = {
+    "A.turn_count":            r"across \*\*20\*\* turns",
+    "A.billed_turn_count":     r"\*\*15\*\* carry usage",
+    "B.turn_count":            r"across its \*\*66\*\* turns",
+    "gap.long_n":              r"after a >1h gap \| \*\*20\*\*",
+    "gap.short_n":             r"after a .1h gap \| \*\*75\*\*",
+    "price.reconciling_1h":    r"\*\*95\*\* of \*\*99\*\* priced turns|95 of\s+the 99 priced turns|\*\*95\*\* fit",
+    "price.priced_turns":      r"\*\*95\*\* of \*\*99\*\* priced turns|the 99 priced turns|99 个计费轮中 95 轮",
+    "price.unreconciled":      r"\*\*four turns do not\s+reconcile\*\*|pins the count at \*\*four\*\*",
+    "B.jul15_write_turns":     r"\*\*five\*\* turns rewriting|\*\*五\*\*个",
+    "codex.turn_count":        r"\*\*6\*\*-turn codex session|\*\*6\*\* 轮 codex",
+    "codex.long_gap_zero_write": r"\*\*132\*\*-minute gap|\*\*132\*\* 分钟间隔|132-minute gap",
+    "B.peak_duration_seconds": r"\*\*131\*\* seconds|\*\*131\*\* 秒|131-second",
+    "C.sibling_delay_seconds": r"\*\*81\*\* seconds|\*\*81\*\* 秒|81 seconds after|81s after|\+81 seconds",
+}
+
+BOUND_FILES = {
+    "README.md": HERE / "README.md",
+    "root README.md": HERE.parent.parent / "README.md",
+    "root README.zh-CN.md": HERE.parent.parent / "README.zh-CN.md",
+}
+
+
+def _pattern(key: str, literal: str) -> str:
+    if key in ANCHORS:
+        return ANCHORS[key]
+    if literal[0].isdigit() or literal[0] == "$":
+        return r"(?<![\d,.$])" + re.escape(literal) + r"(?![\d,.%])"
+    return re.escape(literal)
+
+
+def occurrences(key: str, literal: str) -> dict[str, int]:
+    pat = re.compile(_pattern(key, literal))
+    out = {}
+    for label, path in BOUND_FILES.items():
+        n = len(pat.findall(path.read_text()))
+        if n:
+            out[label] = n
+    return out
+
+
+EXPECTED_COUNTS = {
+    'A.cache_read_tokens': {'README.md': 3},
+    'A.output_tokens': {'README.md': 5},
+    'A.read_to_output_ratio': {'README.md': 2},
+    'A.total_cost': {'README.md': 6},
+    'A.context_share': {'README.md': 5, 'root README.md': 1, 'root README.zh-CN.md': 1},
+    'A.generation_share': {'README.md': 10, 'root README.zh-CN.md': 1},
+    'A.cache_read_line': {'README.md': 5},
+    'A.cache_write_line': {'README.md': 3},
+    'A.output_line': {'README.md': 1},
+    'A.input_line': {'README.md': 1},
+    'A.worst_turn_cache_read': {'README.md': 2},
+    'A.call_floor': {'README.md': 4},
+    'A.turn_count': {'README.md': 1},
+    'A.billed_turn_count': {'README.md': 1},
+    'B.peak_cache_write': {'README.md': 4},
+    'B.peak_cost': {'README.md': 9, 'root README.md': 1, 'root README.zh-CN.md': 1},
+    'B.peak_write_line': {'README.md': 5},
+    'B.peak_write_share': {'README.md': 2},
+    'B.peak_output_tokens': {'README.md': 6, 'root README.md': 1, 'root README.zh-CN.md': 1},
+    'B.peak_duration_seconds': {'README.md': 4, 'root README.md': 1},
+    'B.peak_idle_hours': {'README.md': 2},
+    'B.lifetime_cost': {'README.md': 5},
+    'B.turn_count': {'README.md': 1},
+    'B.jul15_write_line': {'README.md': 4},
+    'B.jul15_write_turns': {'README.md': 4},
+    'C.sibling_cost': {'README.md': 2},
+    'C.sibling_cache_write': {'README.md': 2},
+    'C.sibling_delay_seconds': {'README.md': 4},
+    'price.reconciling_1h': {'README.md': 1},
+    'price.priced_turns': {'README.md': 2},
+    'price.unreconciled': {'README.md': 1},
+    'price.zero_token_charge': {'README.md': 2},
+    'gap.long_n': {'README.md': 1},
+    'gap.short_n': {'README.md': 1},
+    'gap.long_median': {'README.md': 2},
+    'gap.short_median': {'README.md': 2},
+    'gap.A_long': {'README.md': 4},
+    'gap.A_short': {'README.md': 2},
+    'gap.B_long': {'README.md': 2},
+    'gap.B_short': {'README.md': 2},
+    'gap.C_long': {'README.md': 2},
+    'gap.C_short': {'README.md': 2},
+    'codex.turn_count': {'README.md': 2},
+    'codex.long_gap_zero_write': {'README.md': 2},
 }
 
 
@@ -238,21 +345,23 @@ def verify_digests() -> list[str]:
 def main() -> int:
     check = "--check" in sys.argv
     rows = evaluate()
-    readme = (HERE / "README.md").read_text()
 
     width = max(len(k) for k, _, _, _ in rows)
     bad_value = []
     bad_prose = []
     print(f"{'claim'.ljust(width)}  {'quoted':>12}  {'computed':>12}  in README")
     for key, literal, actual, ok in rows:
-        present = literal in readme
+        found = occurrences(key, literal)
+        expected = EXPECTED_COUNTS.get(key, {})
         if not ok:
             bad_value.append(key)
-        if not present:
-            bad_prose.append((key, literal))
+        if found != expected:
+            bad_prose.append((key, expected, found))
         flag = "ok" if ok else "MISMATCH"
-        seen = "yes" if present else "MISSING"
-        print(f"{key.ljust(width)}  {literal:>12}  {actual:>12}  {seen:>8}  {flag}")
+        seen = "ok" if found == expected else "MOVED"
+        total = sum(found.values())
+        print(f"{key.ljust(width)}  {literal:>12}  {actual:>12}  "
+              f"{total:>3} occ  {seen:>5}  {flag}")
 
     if not check:
         return 0
@@ -263,9 +372,9 @@ def main() -> int:
         for key in bad_value:
             print(f"  - {key}")
     if bad_prose:
-        print(f"{len(bad_prose)} claim(s) no longer appear in README.md:")
-        for key, literal in bad_prose:
-            print(f"  - {key} (expected the literal {literal!r})")
+        print(f"{len(bad_prose)} claim(s) no longer appear where they should:")
+        for key, expected, found in bad_prose:
+            print(f"  - {key}: expected {expected}, found {found}")
     bad_digest = verify_digests()
     if bad_digest:
         print(f"{len(bad_digest)} trace file(s) changed since the claims were fixed:")

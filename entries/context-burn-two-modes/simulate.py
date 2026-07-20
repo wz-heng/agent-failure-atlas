@@ -15,9 +15,12 @@ traces and never guesses at anything. Numbers from that file and numbers from
 this one must never appear in the same table.
 
 What the simulation is for: the counterfactual the traces cannot supply. The
-ledger records what the marathon sessions cost. It cannot record what the same
-work would have cost under different session hygiene, because that run never
-happened. A fake clock and a fake cache can run both arms.
+ledger records what the marathon sessions were billed. It cannot record what the
+same task sequence would have cost under different session hygiene, because that
+run never happened. A fake clock and a fake cache can run both arms.
+
+No text is generated in either arm — the two spend an identical output-token
+BUDGET. Nothing here demonstrates that the arms would produce equivalent work.
 
     python3 simulate.py     # exit 0 = every oracle held
 
@@ -36,8 +39,10 @@ from repro import (
     FAILURES,
 )
 
-# The one-hour TTL is not a free parameter — `repro.py` oracle 1 identifies it
-# from the real billing data. Everything else in this file is a choice.
+# The one-hour TTL matches the cache SKU `repro.py` oracle 1 identifies in the
+# real billing data. Note the limit of that: the oracle identifies the RATE
+# BEING BILLED, not an observed entry lifetime, so modelling expiry at exactly
+# one hour is this simulation's assumption. Everything else here is a choice too.
 CACHE_TTL_SECONDS = 3600
 
 MODEL = "claude-opus-4-8"

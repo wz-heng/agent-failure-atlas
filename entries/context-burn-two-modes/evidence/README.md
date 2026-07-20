@@ -9,16 +9,22 @@
 | `hot_reread_A.jsonl` | `session-A` | 2026-07-09, 03:56 | 20 | the hot re-read: 20 turns, 43.7M cache-read tokens |
 | `cold_rewrite_B.jsonl` | `session-B` | 2026-07-11 → 07-15 | 66 | the marathon: five days, repeated large rewrites |
 | `cold_rewrite_C.jsonl` | `session-C` | 2026-07-13 → 07-15 | 27 | a second session billed its own rewrite 81s after B |
-| `codex_no_cache_field_D.jsonl` | `session-D` | 2026-07-20 | 6 | **a control, not a case.** A codex-backend session, included because it reports `cache_creation_tokens` as 0 on every turn |
+| `codex_no_cache_field_D.jsonl` | `session-D` | 2026-07-20 | 6 | **a control, not a case.** A codex-backend session, included because its adapter never populates `cache_creation_tokens` |
 
 `export_traces.py` in this directory is the transform that produced them, and
 `--check` re-runs it against the original to prove the committed files are
 exactly its output.
 
 **Session D exists to make an exclusion honest.** The entry's oracle 4 excludes
-the codex backend from its idle-gap analysis, because codex never reports the
-cache-creation field — so its turns look like "long gap, no rewrite" when in
-fact nothing was measured. An earlier revision asserted that property with **no
+the codex backend from its idle-gap analysis, because the stored zero there means
+"not reported" rather than "nothing was written" — so its turns look like "long
+gap, no rewrite" when in fact nothing was measured.
+
+That is a source-code fact, not an inference from six rows of zeros: Owlery's
+codex usage normalizer (`server/harness/codex.py`, `_normalize_usage`) builds its
+`TokenUsage` from the four fields Codex emits — `input_tokens`,
+`cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` — and never
+assigns `cache_creation_tokens`, so it takes its default of zero. An earlier revision asserted that property with **no
 codex data committed at all**, so the test ran `all(...)` over an empty list and
 passed while proving nothing. Session D is real data with a real 132-minute gap
 followed by an apparent zero rewrite, and
@@ -85,10 +91,15 @@ basis and no stronger — see its §3.
 them. The strangest is an errored turn billed **$9.8231 with every token counter
 at zero** — a charge with no recorded consumption. It is preserved in the trace
 and pinned by `test_trace_unreconciled_turn_count_is_what_the_entry_says`. I do
-not know what it is. Note the consequence for the entry's two session totals
-($53.85 and $235.7484): those are sums of the reported `cost` field, unreconciled
-rows included, and are therefore provider-reported totals rather than
-decompositions.
+not know what it is.
+
+The four are **not spread evenly**, which changes what each session total can be
+called. Session A reconciles 15 of 15 priced turns and session C 24 of 24, so
+their totals ($53.85 and $69.92) are both provider-reported sums **and** complete
+decompositions. Session B reconciles 56 of 60, so its **$235.7484** lifetime is a
+provider-reported sum **only** — four turns inside it cannot be decomposed. An
+earlier revision of this paragraph lumped A in with B and understated what A
+supports.
 
 ## Redaction
 
@@ -155,10 +166,12 @@ a per-session epoch instead.
   additionally asserts every record carries exactly the whitelisted key set and
   a `session-` placeholder.
 - **The traces still say what the entry says.** `claims.py --check` recomputes
-  all **44** quoted figures from these files *and* asserts each literal still
-  appears in the entry's README. Editing a number in either place without the
-  other turns it red. `test_claims_checker_agrees_with_traces_and_prose` runs it
-  as part of the ordinary test command.
+  all **44** quoted figures from these files, asserts each still appears the
+  expected number of times in the entry README and both root READMEs, and
+  verifies a SHA-256 per trace. Editing a number in either place — or any single
+  one of its several occurrences — turns it red.
+  `test_claims_checker_agrees_with_traces_and_prose` runs it as part of the
+  ordinary test command.
 - **The pricing reconciliation is self-checking.**
   `test_trace_only_the_1h_rate_reconciles` asserts 95 matches at the 1-hour rate
   and exactly 0 at the 5-minute rate.

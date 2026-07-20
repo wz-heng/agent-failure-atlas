@@ -87,7 +87,7 @@ def test_defense_rejects_a_nonsensical_window() -> None:
         raise AssertionError(f"window={bad} should have raised")
 
 
-def test_defense_reduces_spend_on_identical_work() -> None:
+def test_defense_reduces_spend_on_the_same_task_sequence() -> None:
     marathon, marathon_sessions, marathon_peak = run_session_strategy(None)
     guarded, guarded_sessions, guarded_peak = run_session_strategy(
         int(CONTEXT_WINDOW * 0.50)
@@ -155,23 +155,44 @@ def test_no_identifier_leaks_anywhere_in_the_entry() -> None:
     The check is structural rather than a denylist of the (now removed) ids:
     a bare 12-hex-digit token is the shape of an Owlery session id, and none
     should appear anywhere in the entry.
+
+    Coverage is bounded, and the bound is stated rather than implied: it scans
+    every git-tracked text file under this entry, matching Owlery's own id shape
+    (12 hex digits, either case) and POSIX absolute home paths. It would not
+    catch a Windows path, a differently-shaped identifier from another system,
+    or a secret that is not id-shaped. It is a regression guard for the specific
+    leak review found here, not a general secret scanner.
     """
     import re
-    hexish = re.compile(r"\b[0-9a-f]{12}\b")
+    hexish = re.compile(r"\b[0-9a-fA-F]{12}\b")
     # A real home path is "/Users/" followed by a username. The literal token
     # "/Users/" also appears in this file and in evidence/README.md as part of
     # the documented grep, so match the shape of an actual path, not the token.
     homepath = re.compile(r"/(?:Users|home)/\w")
-    for path in sorted(HERE.rglob("*")):
-        if not path.is_file() or "__pycache__" in path.parts:
+    # Scan what git actually tracks under this entry, so a new committed file
+    # type cannot slip past a hardcoded suffix list. Falls back to a filesystem
+    # walk outside a git checkout.
+    import subprocess
+    try:
+        listing = subprocess.run(["git", "ls-files", "-z", "--", str(HERE)],
+                                 capture_output=True, text=True, cwd=HERE, check=True)
+        paths = [Path(x) for x in listing.stdout.split("\0") if x]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        paths = [p for p in HERE.rglob("*") if "__pycache__" not in p.parts]
+    scanned = 0
+    for path in paths:
+        if not path.is_file():
             continue
-        if path.suffix not in {".py", ".jsonl", ".md", ".txt", ""}:
-            continue
-        text = path.read_text(errors="ignore")
-        rel = path.relative_to(HERE)
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError:
+            continue            # binary: no textual identifier to leak
+        scanned += 1
+        rel = path.name
         assert not homepath.search(text), f"{rel} contains an absolute home path"
         found = hexish.findall(text)
         assert not found, f"{rel} contains session-id-shaped tokens: {found[:3]}"
+    assert scanned >= 8, f"only scanned {scanned} files; the walk found nothing"
 
 
 def test_trace_session_a_totals_match_the_entry() -> None:
@@ -202,7 +223,7 @@ def test_trace_session_b_lifetime_total_matches_the_entry() -> None:
     assert round(sum(r["cost"] for r in rows), 4) == 235.7484
 
 
-def test_trace_session_c_paid_its_own_tax_at_the_same_moment() -> None:
+def test_trace_session_c_was_billed_its_own_rewrite_at_the_same_moment() -> None:
     b_peak = max(billed(load("cold_rewrite_B.jsonl")),
                  key=lambda r: r["cache_creation_tokens"])
     c_rows = billed(load("cold_rewrite_C.jsonl"))
@@ -311,9 +332,11 @@ def test_trace_price_table_covers_every_model_in_the_corpus() -> None:
             assert (row["model"] or "").lower() in LIST_PRICE, row["model"]
 
 
-def test_ttl_constant_agrees_with_what_the_billing_shows() -> None:
-    """`simulate.py` hardcodes a 1-hour TTL. That is not a free parameter — it
-    is the value repro.py's oracle 1 derives from the real billing data."""
+def test_ttl_constant_agrees_with_the_billed_cache_sku() -> None:
+    """`simulate.py` models a 1-hour TTL because that is the cache SKU oracle 1
+    identifies in the real billing data. The oracle identifies the RATE BEING
+    BILLED, not an observed entry lifetime — the simulation's expiry timing is
+    an assumption, and this test pins only the rate it is derived from."""
     assert CACHE_TTL_SECONDS == 3600
     assert CACHE_WRITE_MULTIPLIER_1H == 2.00
 
