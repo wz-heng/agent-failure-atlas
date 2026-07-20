@@ -220,7 +220,8 @@ Four machine-checked oracles:
 Regression tests for the defense:
 
 ```bash
-python3 test_defense.py            # or: python3 -m pytest test_defense.py -q
+python3 test_defense.py            # or, if pytest is installed:
+python3 -m pytest test_defense.py -q
 ```
 
 12 tests: the four traces, disjointness (with each disposition's predicate

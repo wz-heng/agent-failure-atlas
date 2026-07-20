@@ -4,16 +4,18 @@
     python3 test_defense.py            # standalone
     python3 -m pytest test_defense.py -q
 
-Offline, stdlib only, ~1.2s. Which tests touch what, stated by name rather than
-by index so it cannot go stale:
+Offline, stdlib only, ~1.2s. Which tests touch what — the synthetic/real
+boundary matters more than anything else in this file, so it is stated by name:
 
-* **Real captures** from evidence/ — everything under "the bug, pinned",
-  "the fix", "the dropped warning" and "the evidence itself".
-* **Synthetic streams** — the three tests under "shapes the corpus does not
-  contain". They are hand-written unit tests of the guard, covering shapes no
-  capture happens to exhibit. They are never cited as evidence about the vendor,
-  and `_synthetic_cli` is the only thing that builds them.
-* **No stream at all** — the four attribution tests, which are pure functions.
+* **Real captures** from evidence/ — everything under "the fix", "the dropped
+  warning" and "the evidence itself", plus two of the three under "the bug,
+  pinned".
+* **Hand-written records** — the three under "shapes the corpus does not
+  contain" (built by `_synthetic_cli`, covering shapes no capture exhibits) and
+  `test_an_empty_message_produces_no_event_at_all` (inline dicts, asserting on
+  the parser directly). None of these is ever cited as evidence about the
+  vendor.
+* **No stream at all** — the three attribution tests, which are pure functions.
 """
 
 from __future__ import annotations

@@ -26,7 +26,12 @@ a replay of the 2026-07-13 incident, and nothing here should be cited as one.
   a Claude model name handed to the Codex backend — re-run today. They show the
   vendor now rejects it with an explicit `error` + `turn.failed` and exit 1, on
   **both** CLI versions. So the silent behaviour reported on 2026-07-13 is not
-  reproducible today, and the difference is server-side, not a CLI upgrade.
+  reproducible today. **Where the difference lives is undetermined**: these runs
+  also differ from the incident on the client side (throwaway `CODEX_HOME`,
+  `--ignore-user-config`), account and plan state may have changed, and the
+  operator's "zero error events" may have meant "nothing surfaced in Owlery".
+  A server-side change is consistent with the captures; it is not established
+  by them. See the entry's §3.
 - The `zero_content` capture was elicited by *asking the model to say nothing*
   (prompt below), not by a rejection. It is a real, unedited capture of the
   stream shape the consumer mishandles — terminal success, zero content, zero
@@ -77,7 +82,12 @@ this — filesystem timestamps, which are the only surviving record of the
 | path | mtime | what it records |
 |---|---|---|
 | `/opt/homebrew/lib/node_modules/@openai/codex/package.json` | 2026-07-19 10:18:13 | the upgrade to 0.144.6 landing under Homebrew |
-| `/Users/<user>/.local/bin/codex` | 2026-07-19 10:37:04 | the shadowing symlink being repointed at it, 19 minutes later |
+| `/Users/<user>/.local/bin/codex` | 2026-07-19 10:37:04 | that symlink being **rewritten**, 19 minutes later |
+
+These fix the **timing** of the remediation and nothing more. In particular they
+do not record what the symlink pointed at *before* 10:37 — that target is
+unrecorded, and no older install survives on the machine — so the shadowing
+mechanism itself rests on the operator's notes. The entry's §2 states the gap.
 
 No commit in Owlery records the incident; the fix was operational, not a code
 change.
