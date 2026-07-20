@@ -161,10 +161,9 @@ def test_the_defense_surfaces_the_dropped_warning_as_a_warning():
 def test_both_cli_versions_emit_the_same_warning_today():
     """The warning is not a 0.144.6 novelty — 0.142.5 emits it too.
 
-    It is written before `turn.started`, i.e. before the request leaves the
-    client, which makes it *likely* the same record was emitted on the day of
-    the incident. No capture from that day exists, so this test pins what the
-    two builds do today and nothing more.
+    Pins what the two builds do today and nothing more. Whether the record was
+    emitted on the day of the incident is unknown: no capture from that day
+    exists.
     """
     for name in ("rejected_0_144_6", "rejected_0_142_5"):
         out = drive_turn(fake_cli(name), policy="defended")
@@ -214,16 +213,56 @@ def test_attribution_fails_in_both_directions():
     assert attribute_model("claude-code", "gpt-5.3-codex") is not None
 
 
-def test_attribution_accepts_matching_pairs_and_passes_unknown_names_through():
+def test_attribution_accepts_matching_pairs():
     assert attribute_model("codex", "gpt-5.3-codex") is None
+    assert attribute_model("codex", "codex") is None
     assert attribute_model("claude-code", "claude-opus-4-8") is None
     assert attribute_model("claude-code", "opus") is None
+    assert attribute_model("claude-code", "sonnet-4-5") is None
     assert attribute_model("codex", None) is None
     assert attribute_model("codex", "") is None
-    # A name from neither namespace must NOT be blocked: the vendor is the
-    # authority on what it accepts, and a stale allowlist that rejects a
-    # newly-released model is a worse failure than the one being fixed.
-    assert attribute_model("codex", "some-future-model-2027") is None
+
+
+def test_attribution_is_deliberately_incomplete_and_says_so():
+    """`family-word` is not attributed, by design — it is the colliding shape.
+
+    Pinned rather than left implicit: a later reader tempted to "improve" the
+    check by matching `o3-mini` would reintroduce exactly the collisions
+    `test_attribution_passes_unknown_names_through_including_colliding_ones`
+    exists to prevent. Missing a rejection costs one confusing turn; a false
+    rejection tells a user their working configuration is broken.
+    """
+    assert attribute_model("claude-code", "o3-mini") is None
+    assert attribute_model("codex", "opus-magnum") is None
+
+
+def test_attribution_passes_unknown_names_through_including_colliding_ones():
+    """The class the check must NOT match — the one it is easiest to forget.
+
+    A name from neither namespace must not be blocked: the vendor is the
+    authority on what it accepts, and a stale allowlist that rejects a
+    newly-released model is a worse failure than the one being fixed.
+
+    Every name below is a real counterexample to the substring version of this
+    function that shipped in rounds 1-4 and that these tests failed to catch,
+    because the only unknown name they tried (`some-future-model-2027`) happened
+    to collide with nothing. Sampling the negative class from names you already
+    believe won't match is how a classifier passes its own tests while broken.
+    """
+    for backend in ("codex", "claude-code"):
+        for name in (
+            "some-future-model-2027",
+            "octopus-v2",        # contains "opus"
+            "opus-magnum",       # ...as a leading word, but not "opus-<version>"
+            "sonnet-of-the-sea", # contains "sonnet"
+            "haikus-for-hire",   # contains "haiku"
+            "codexterity",       # contains "codex"
+            "no1se",             # contains "o1"
+            "video-o4k",         # contains "o4"
+            "trigpt",            # contains "gpt"
+            "unclaudeable",      # contains "claude"
+        ):
+            assert attribute_model(backend, name) is None, (backend, name)
 
 
 # --- the evidence itself --------------------------------------------------
@@ -238,6 +277,14 @@ def test_every_trace_is_valid_jsonl_and_carries_no_raw_identifiers():
             if tid is not None:
                 assert tid.startswith("thread-"), (trace, tid)
         assert "/Users/" not in text and "/tmp/" not in text, trace
+        # evidence/README.md claims the only change is the identifier
+        # substitution, applied by parse -> substitute -> json.dumps. Pin the
+        # serialization half of that claim: every shipped line is exactly what
+        # json.dumps produces for its own parse, so no line was hand-edited
+        # after generation.
+        for line, rec in zip(
+                [l for l in text.splitlines() if l.strip()], records):
+            assert json.dumps(rec) == line, (trace, line[:80])
 
 
 def test_todays_rejection_is_loud_on_both_versions():
@@ -256,12 +303,15 @@ def test_todays_rejection_is_loud_on_both_versions():
         assert "turn.completed" not in kinds, trace
 
 
-def test_the_warning_precedes_the_request_on_both_builds():
-    """Load-bearing for §2's claim that the warning is client-side.
+def test_the_warning_is_serialized_before_turn_started():
+    """Pins the ordering §2 states — and only the ordering.
 
-    The entry says the CLI names the model string *before the request leaves
-    the client*. That is only true if the warning record precedes
-    `turn.started`, so assert the ordering rather than trusting the prose.
+    A stream is a serialization order, not a timeline of network activity. This
+    asserts that the warning record is written before `turn.started` in both
+    captures. It does NOT establish that the record was produced before the
+    request left the client, and the entry no longer says it does: an earlier
+    revision inferred "client-side, therefore probably present on the day of
+    the incident" from this ordering, which the ordering cannot support.
     """
     for trace in ("codex_0.144.6_model_rejected.jsonl",
                   "codex_0.142.5_model_rejected.jsonl"):

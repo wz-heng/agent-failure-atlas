@@ -186,10 +186,47 @@ def drive_turn(argv: list[str], policy: str) -> Outcome:
 
 # Owlery has no such table. This is the defense the entry proposes, not
 # transcribed production code — it is labelled PROPOSED wherever it is used.
+#
+# Matching is ANCHORED, never "substring anywhere". An earlier version of this
+# function used `marker in model.lower()`, which classified `octopus-v2` as a
+# claude model (it contains "opus"), `no1se` as a codex model (it contains
+# "o1"), and `video-o4k` likewise. A name from neither namespace must pass
+# through, and a bare substring test cannot promise that.
 MODEL_OWNERSHIP = {
-    "claude-code": ("claude-", "opus", "sonnet", "haiku"),
-    "codex": ("gpt-", "o1", "o3", "o4", "codex"),
+    # backend: (vendor prefixes, family aliases)
+    "claude-code": (("claude-",), ("opus", "sonnet", "haiku")),
+    "codex": (("gpt-",), ("codex", "o1", "o3", "o4")),
 }
+
+
+def _namespace_of(model: str) -> str | None:
+    """Which backend's namespace does this name positively belong to, if any?
+
+    Three ways to belong, all anchored:
+      * a vendor prefix       — `claude-opus-4-8`, `gpt-5.3-codex`
+      * a bare family alias   — `opus`, `codex`
+      * a family alias with a version — `sonnet-4-5`, `o3-2`
+
+    The version digit is what keeps `opus-magnum` out: a family alias followed
+    by a *word* is somebody else's name, not a release of ours.
+
+    Deliberately incomplete. It will not attribute `o3-mini` or `codex-mini`,
+    because "family alias plus arbitrary word" is precisely the shape that
+    collides with unrelated names. Missing a rejection costs one confusing turn;
+    a false rejection blocks a legitimate model with a message insisting the
+    user's own configuration is wrong. Soundness beats completeness here.
+    """
+    lowered = model.lower()
+    for backend, (prefixes, families) in MODEL_OWNERSHIP.items():
+        if lowered.startswith(prefixes):
+            return backend
+        for family in families:
+            if lowered == family:
+                return backend
+            rest = lowered[len(family) + 1:]
+            if lowered.startswith(family + "-") and rest[:1].isdigit():
+                return backend
+    return None
 
 
 def attribute_model(backend: str, model: str | None) -> str | None:
@@ -198,20 +235,18 @@ def attribute_model(backend: str, model: str | None) -> str | None:
     Rejects only names that positively match a *different* backend's namespace.
     An unrecognised name is passed through: the vendor, not this table, is the
     authority on what it accepts, and a stale allowlist that blocks a
-    newly-released model is a worse failure than the one being fixed.
+    newly-released model is a worse failure than the one being fixed. That
+    guarantee is why matching is anchored — see MODEL_OWNERSHIP.
     """
     if not model:
         return None
-    lowered = model.lower()
-    for other, markers in MODEL_OWNERSHIP.items():
-        if other == backend:
-            continue
-        if any(m in lowered for m in markers):
-            return (
-                f"model {model!r} looks like a {other} model, but this session "
-                f"runs on the {backend} backend"
-            )
-    return None
+    owner = _namespace_of(model)
+    if owner is None or owner == backend:
+        return None
+    return (
+        f"model {model!r} looks like a {owner} model, but this session "
+        f"runs on the {backend} backend"
+    )
 
 
 # --------------------------------------------------------------------------

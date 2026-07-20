@@ -51,10 +51,13 @@ model chose not to reply" — is both plausible and completely wrong.
 > independently checkable is stated in [§3](#3-evidence); what is *not*
 > reproducible today is stated there too, and it is the more important half.**
 
-The same symptom was diagnosed three times over six days, and had a different
-cause each time. That is the point of the entry: the symptom is not a
-fingerprint of any one bug. It is the fingerprint of *a whole class of
-upstream failure arriving through a channel that cannot express failure*.
+The same symptom was diagnosed three times over six days. Two of those
+diagnoses found a genuine upstream rejection; the third found a botched fix that
+had left the second one in place. That is the point of the entry: the symptom is
+not a fingerprint of any one bug. It is the fingerprint of *a whole class of
+upstream failure arriving through a channel that cannot express failure* — and,
+once you are in that state, of your own remediations failing silently too,
+because the channel cannot tell you they did not work either.
 
 ### Ring 1 (2026-07-13) — a model name from the wrong backend
 
@@ -134,8 +137,9 @@ there would have been no ring 3 at all.
 
 ### The second-order cause
 
-Three different upstream problems produced one indistinguishable symptom
-because **two independent defects in the consumer lined up**:
+Two different upstream rejections — and one failed upgrade that let the second
+of them persist — produced one indistinguishable symptom, because **two
+independent defects in the consumer lined up**:
 
 1. **Nothing checks that a model name belongs to the backend that will run it.**
    `Agent.model` is a free-form `str | None`; `Agent.backend` and
@@ -206,9 +210,10 @@ Two consequences, both stated plainly rather than smoothed over:
   own prose drifting.
 
 The `zero_content` capture was obtained by asking the model to emit no message —
-a different cause, the same consumer-visible shape. It is a real unedited
-capture of the shape, not a reconstruction of the incident, and
-[`evidence/README.md`](evidence/README.md) says so at the top.
+a different cause, the same consumer-visible shape. It is a real capture of the
+shape — carrying the identifier-only redaction and no other change — not a
+reconstruction of the incident, and [`evidence/README.md`](evidence/README.md)
+says so at the top.
 
 ### The incidents — `operator's diagnostic notes`
 
@@ -453,7 +458,8 @@ re-run. On the success path the function reaches `if saw_result: return` and
 exits without ever reading it. The variable that would have caught this was one
 `if` away, on the wrong side of a branch.
 
-**And the third one, on the same path.** `_item_events` returns `[]` for any
+**And a third defect on the same path — not a third cause of the silence, but
+the reason it was undiagnosable.** `_item_events` returns `[]` for any
 item type it does not model — including `item.type == "error"`, which is exactly
 the record carrying ``Model metadata for `Claude-opus-4-8` not found``. Worse,
 it returns `[]` *silently*: the top-level fall-through one function up does at
@@ -461,11 +467,14 @@ least `logger.debug("Unhandled codex event type: %s", kind)`, but the item
 fall-through has no log line at all. The diagnostic advice above is half
 implemented already, and the missing half is the one carrying this record.
 
-Both captures place that record **before `turn.started`** — i.e. before the
-request leaves the client — so it was very likely emitted on the day of the
-incident too. Likely, not certain: no capture from that day exists.
-`test_the_warning_precedes_the_request_on_both_builds` pins the ordering the
-inference rests on.
+In both captures that record is **serialized before `turn.started`**, which
+`test_the_warning_is_serialized_before_turn_started` pins. That is a fact about
+the order of the stream and nothing more: a serialization order is not a
+timeline of network activity, so it does not establish that the record was
+produced before the request left the client. **Whether this record appeared at
+all on the day of the incident is unknown** — no capture from that day exists.
+An earlier revision reasoned from the ordering to "client-side, therefore very
+likely present that day", which is two inferences the ordering cannot carry.
 
 None of these is exotic. Each is the ordinary shape of consumer code written
 against the happy path: map what you render, ignore what you don't, and treat
@@ -490,7 +499,7 @@ cause, and it would have made all three rings visible on the first day.
 
 **现象**:给 agent 发消息,它「已读不回」。turn 跑一段时间(`[operator testimony]` 记录为 11–30 秒,无捕获留存)后结束,没有回复,也**没有任何报错**:CLI 退出码 0,事件流以「终态成功」记录收尾,运行时把这一轮标记为完成并放行队列,UI 渲染出一个没有助手消息的完成轮次。整条链路上每一层都报告成功。没有可以 grep 的错误串、没有非零退出、没有栈、没有失败计数——这次故障留下的唯一痕迹是一处**缺席**,而缺席不进日志。崩溃会告诉你去哪儿看,静默的成功什么也不告诉你,而最自然的第一假设「模型自己选择不回答」既合理又完全错误。
 
-**根因(三连环,以下事故叙述均为 `[operator testimony]`,来自操作者当时的诊断记录;两天的终端记录与事件流均未留存)**:同一个症状在六天里被诊断了三次,每次病因都不同——这正是本条目的要点:该症状不是任何单个 bug 的指纹,而是**一整类上游失败经由一条无法表达失败的通道抵达用户**时的指纹。
+**根因(三连环,以下事故叙述均为 `[operator testimony]`,来自操作者当时的诊断记录;两天的终端记录与事件流均未留存)**:同一个症状在六天里被诊断了三次——其中**两次**查到的是真实的上游拒绝,**第三次**查到的则是一次没修成的修复,它让第二次的拒绝继续存在。这正是本条目的要点:该症状不是任何单个 bug 的指纹,而是**一整类上游失败经由一条无法表达失败的通道抵达用户**时的指纹;而且一旦落入这种状态,**你自己的补救措施也会静默失败**——那条通道同样没法告诉你「没修好」。
 - **第一环(07-13)**:agent 配置 `backend: claude-code` + `model: Claude-opus-4-8`,而会话以 **codex** 后端创建(Owlery 允许,因为会话的 backend 是独立字段)。harness 原样把模型名透传:`if ctx.model: argv += ["-m", ctx.model]`。codex 接受了这个 flag,去请求一个在它服务上不存在的模型,turn 便以「终态成功 + 空最终消息 + 零错误事件」结束。**先走的弯路**:先怀疑模型自己不想答——因为从系统能看见的每个角度它都在正常工作,唯一剩下的变量似乎只有模型的判断。
 - **第二环(07-19)**:另一个 agent 用**正确**的模型名出现同样症状,病因是服务端 400「requires a newer version of Codex」(本机 0.142.5 过旧)。**推论比单个 bug 更值钱:我撞到的这两次服务端拒绝长着同一张脸,而机制预示其它的也会**——因为它们都以「缺席」抵达用户,而缺席之间彼此无法区分。两个样本当然不足以支撑全称判断;真正的理由是 §5 里那个**根本不看病因**的消费者侧机制。
 - **第三环(07-19)**:`npm install -g` 报成功,症状依旧,`codex --version` 仍是 0.142.5。双安装:升级落在 `/opt/homebrew/bin/codex`(0.144.6),而 PATH 先命中 `~/.local/bin/codex` 这个符号链接。`which codex`(单数)只显示一条路径,并告诉你它没问题。**诊断第一条命令应是 `which -a`,不是 `which`。** 须说明:文件系统时间戳只证明该符号链接在 10:37 被重写过,**不证明它此前指向何处**——旧安装今天在这台机器上已无任何残留,因此「遮蔽机制」本身仍属口述,时间戳只旁证时点。
@@ -499,4 +508,4 @@ cause, and it would have made all three rings visible on the first day.
 
 **防御**:关键的一行不需要知道任何模型名、版本或供应商——**「终态成功但没有交付任何助手内容」不是成功**,直接判失败并显式报错。它不枚举病因,而是断言不变量,因此第一环、第二环、以及将来的第四环都能接住。代价照实说:该判据以助手**文本**为准,一个合法地「只做工具调用、无话可说」的 turn 会被误报;对聊天形态的 agent 这是正确取舍(用户问了问题却没得到回答),对只靠副作用汇报的自主 worker,应把谓词放宽为「没有产生任何形式的输出」,而不是取消它。
 
-**Owlery 的真实情况——如实报告,两处缺陷截至 2026-07-20 仍然存在**,写成「已修复」很容易,但那是假的:(a) **没有任何地方校验模型名是否属于将要运行它的后端**,`Agent.model` 是自由文本,`Agent.backend` 与 `Session.backend` 是彼此独立的枚举字段,会话可以覆盖后端而模型不跟着走;(b) **成功的 turn 从不被追问它产出了什么**:解析器把 `turn.completed` 无条件映射成非错误的 `result`,而 `if completed and text:` 里空字符串是 falsy,零内容消息**连事件都不会生成**,最终 `turn_failed = saw_error_event or not saw_result` 根本不看内容。最有教益的是那个**擦肩而过**:需要的信号 `saw_text` 就在同一个函数里、每一轮都在计算,却只在 `if turn_failed:` 分支内部被读取(用于决定重试是 resume 还是重跑);成功路径走到 `if saw_result: return` 就退出了,从未读它一眼。那个本可以接住这个 bug 的变量,只差一个 `if`,却待在分支的错误一侧。同一条路径上还有第三处:`_item_events` 对任何它没建模的 item 类型 `return []`——包括 `item.type == "error"`,而那正是承载「Model metadata for \`Claude-opus-4-8\` not found」的记录;更糟的是它**连日志都不打**:上一层的顶层 fall-through 好歹有一句 `logger.debug("Unhandled codex event type: %s", kind)`,item 这一层什么都没有。这条记录说的其实是「元数据没找到,将回退默认值,可能影响效果」,读起来像一句温和的降级提示,**并没有点名最终的失败**;但它把**那个谁也没去看的模型名**主动打在了输出的第二行,而运行时把它删掉了。两份捕获都显示该记录出现在 `turn.started` **之前**(即请求离开客户端之前),所以事故当天**很可能**也有这一条——是「很可能」不是「确定」:那天没有任何捕获留存。这个次序由 `test_the_warning_precedes_the_request_on_both_builds` 断言固定。 通用教训:**一条无法表达失败的通道,会把失败报告成成功**;如果你判断「成功」的唯一依据是「没有出现错误」,那么你的解析器没建模的每一个上游问题,都会与一次正常、安静、正确的 turn 无法区分。**要对成功「产出了什么」做断言,而不是对它「没抱怨什么」做断言。** 生产检测:统计「成功结束且零助手输出」的 turn 数——健康系统里这个数约等于零且不会趋势上升,一个计数器,不需要知道任何病因,三个环在第一天就都会可见。
+**Owlery 的真实情况——如实报告,三处缺陷截至 2026-07-20 仍然存在**(两处**导致**静默成功,第三处**导致它无法诊断**),写成「已修复」很容易,但那是假的:(a) **没有任何地方校验模型名是否属于将要运行它的后端**,`Agent.model` 是自由文本,`Agent.backend` 与 `Session.backend` 是彼此独立的枚举字段,会话可以覆盖后端而模型不跟着走;(b) **成功的 turn 从不被追问它产出了什么**:解析器把 `turn.completed` 无条件映射成非错误的 `result`,而 `if completed and text:` 里空字符串是 falsy,零内容消息**连事件都不会生成**,最终 `turn_failed = saw_error_event or not saw_result` 根本不看内容。最有教益的是那个**擦肩而过**:需要的信号 `saw_text` 就在同一个函数里、每一轮都在计算,却只在 `if turn_failed:` 分支内部被读取(用于决定重试是 resume 还是重跑);成功路径走到 `if saw_result: return` 就退出了,从未读它一眼。那个本可以接住这个 bug 的变量,只差一个 `if`,却待在分支的错误一侧。同一条路径上还有第三处——它不是静默的第三个**成因**,而是它**难以诊断的原因**:`_item_events` 对任何它没建模的 item 类型 `return []`——包括 `item.type == "error"`,而那正是承载「Model metadata for \`Claude-opus-4-8\` not found」的记录;更糟的是它**连日志都不打**:上一层的顶层 fall-through 好歹有一句 `logger.debug("Unhandled codex event type: %s", kind)`,item 这一层什么都没有。这条记录说的其实是「元数据没找到,将回退默认值,可能影响效果」,读起来像一句温和的降级提示,**并没有点名最终的失败**;但它把**那个谁也没去看的模型名**主动打在了输出的第二行,而运行时把它删掉了。两份捕获中该记录都**序列化在 `turn.started` 之前**(由 `test_the_warning_is_serialized_before_turn_started` 断言固定)。但这只是关于**流内次序**的事实:序列化次序不是网络活动的时间线,推不出该记录「产生于请求离开客户端之前」。**事故当天究竟有没有这一条,属未知**——那天没有任何捕获留存。早期版本曾由这个次序一路推出「client-side,因此当天很可能也有」,那是次序承载不了的两级推断。 通用教训:**一条无法表达失败的通道,会把失败报告成成功**;如果你判断「成功」的唯一依据是「没有出现错误」,那么你的解析器没建模的每一个上游问题,都会与一次正常、安静、正确的 turn 无法区分。**要对成功「产出了什么」做断言,而不是对它「没抱怨什么」做断言。** 生产检测:统计「成功结束且零助手输出」的 turn 数——健康系统里这个数约等于零且不会趋势上升,一个计数器,不需要知道任何病因,三个环在第一天就都会可见。

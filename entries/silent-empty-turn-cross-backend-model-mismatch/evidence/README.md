@@ -1,9 +1,15 @@
 # Evidence — empty and rejected Codex turns
 
 Five captured Codex CLI event streams, taken **2026-07-20** on macOS 26.3
-(Darwin 25.3.0). Two CLI versions, so the version axis is controlled: `0.142.5`
-is the build that was installed during the 2026-07-13 incident, `0.144.6` is the
-build installed on 2026-07-19.
+(Darwin 25.3.0). Both CLI versions were sampled, each with a same-configuration
+control turn: `0.142.5` is the build that was installed during the 2026-07-13
+incident, `0.144.6` is the build installed on 2026-07-19.
+
+This is **not** a controlled single-variable comparison across versions. The
+0.142.5 runs used a throwaway `CODEX_HOME` and `--ignore-user-config`; the
+0.144.6 runs did not. What each version's pair *does* support is a within-version
+comparison — rejection against control, same flags, same session — and that is
+all this corpus is used for.
 
 | file | CLI | what it is | exit |
 |---|---|---|---|
@@ -33,17 +39,21 @@ a replay of the 2026-07-13 incident, and nothing here should be cited as one.
   A server-side change is consistent with the captures; it is not established
   by them. See the entry's §3.
 - The `zero_content` capture was elicited by *asking the model to say nothing*
-  (prompt below), not by a rejection. It is a real, unedited capture of the
-  stream shape the consumer mishandles — terminal success, zero content, zero
-  errors — obtained by a different cause than the incident's. Same shape,
-  different origin. It is the input to `repro.py`; it is not proof of what
-  happened on 2026-07-13.
+  (prompt below), not by a rejection. It is a real capture of the stream shape
+  the consumer mishandles — terminal success, zero content, zero errors —
+  obtained by a different cause than the incident's. Same shape, different
+  origin. It is the input to `repro.py`; it is not proof of what happened on
+  2026-07-13.
 
 ## Provenance
 
-Each capture is the verbatim stdout of one real `codex exec --json` invocation
-against the real service. Unlike this atlas's usage-limit traces, there is no
-local upstream here: these requests reached OpenAI.
+Each capture is the real stdout of one real `codex exec --json` invocation
+against the real service, carrying the identifier-only redaction documented
+below and nothing else. It is not byte-identical to what the CLI wrote: each
+record was parsed, its `thread_id` substituted, and re-serialized by
+`json.dumps`, so key order is preserved but separator spacing is not. No field
+was added, removed, or otherwise altered. Unlike this atlas's usage-limit
+traces, there is no local upstream here: these requests reached OpenAI.
 
 ```
 # 0.144.6 (the installed build, /opt/homebrew/bin/codex)
