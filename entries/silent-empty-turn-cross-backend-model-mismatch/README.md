@@ -294,7 +294,7 @@ python3 test_defense.py            # or, if pytest is installed:
 python3 -m pytest test_defense.py -q
 ```
 
-20 tests, ~1.2s. The bug pinned; the empty message asserted to produce *no event
+23 tests, ~1.2s. The bug pinned; the empty message asserted to produce *no event
 at all* rather than a suppressed one; the fix; no false positive on either
 control; the loud path unchanged and both of its error branches firing; the
 dropped warning in both versions, and staying a warning rather than becoming an
@@ -304,13 +304,17 @@ labelled synthetic in the file, and never cited as evidence about the vendor);
 the attribution check in both directions plus its deliberate pass-through; and
 four tests that assert the *evidence files themselves* still say what §2 and §3
 claim — redaction, both rejections still loud, the empty capture still
-success-shaped, the warning still ahead of `turn.started` — so the prose cannot
-drift away from the traces.
+success-shaped, the warning still serialized ahead of `turn.started` — so the
+prose cannot drift away from the traces. A last test asserts that this very
+count is the one §4 quotes, because it had already gone stale once.
 
-**Mutation-tested, and the table is generated rather than typed:**
+**Mutation-tested, and the table is generated rather than typed.** The last row
+is the one that matters most: it restores the unanchored substring matching that
+shipped in rounds 1–4 and turns both scripts red, so the collision regression is
+enforced by the table rather than by a test nobody re-runs.
 
 ```bash
-python3 mutations.py     # ~11s; prints the table below
+python3 mutations.py     # ~13s; prints the table below
 ```
 
 Each mutation is one exact edit to `repro.py`, specified in `MUTATIONS` at the
@@ -327,6 +331,7 @@ run if the baseline is not green or if a mutation no longer matches exactly once
 | guard 1 ignores what was delivered | 1 | red |
 | disable guard 2 (surfacing dropped records) | 2 | red |
 | emit an empty-string event instead of no event | 1 | **green** |
+| attribute models by unanchored substring (the round-1..4 bug) | 2 | red |
 
 The last row is the honest one. That mutation is inert at the outcome level — a
 `""` event and no event are indistinguishable once the outcome filters empty

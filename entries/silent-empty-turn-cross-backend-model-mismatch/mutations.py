@@ -65,6 +65,16 @@ MUTATIONS: list[tuple[str, str, str]] = [
         "if completed and text:",
         "if completed and text is not None:  # mutation",
     ),
+    # The attribution check gets a mutation of its own, because blocker 1 of the
+    # round-5 review was precisely a defense that passed its own tests while
+    # broken. This reverts it to the unanchored substring match that shipped in
+    # rounds 1-4, so the collision regression is enforced by the table and not
+    # only by a test nobody re-runs.
+    (
+        "attribute models by unanchored substring (the round-1..4 bug)",
+        '            if lowered.startswith(family + "-") and rest[:1].isdigit():',
+        "            if family in lowered:  # mutation",
+    ),
 ]
 
 

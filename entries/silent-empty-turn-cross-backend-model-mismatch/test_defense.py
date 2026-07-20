@@ -278,10 +278,12 @@ def test_every_trace_is_valid_jsonl_and_carries_no_raw_identifiers():
                 assert tid.startswith("thread-"), (trace, tid)
         assert "/Users/" not in text and "/tmp/" not in text, trace
         # evidence/README.md claims the only change is the identifier
-        # substitution, applied by parse -> substitute -> json.dumps. Pin the
-        # serialization half of that claim: every shipped line is exactly what
-        # json.dumps produces for its own parse, so no line was hand-edited
-        # after generation.
+        # substitution, applied by parse -> substitute -> json.dumps. This pins
+        # the *formatting* half of that claim: every shipped line is canonical
+        # json.dumps output, which is consistent with the documented pipeline
+        # and inconsistent with a text edit that disturbed spacing. It does NOT
+        # establish content authenticity — an edit made through the same
+        # pipeline would still be canonical. Only the originals settle that.
         for line, rec in zip(
                 [l for l in text.splitlines() if l.strip()], records):
             assert json.dumps(rec) == line, (trace, line[:80])
@@ -336,6 +338,19 @@ def test_the_zero_content_capture_really_is_a_success_shaped_stream():
                 and (r.get("item") or {}).get("type") == "agent_message"]
     assert len(messages) == 1
     assert messages[0]["text"] == ""
+
+
+def test_the_entry_quotes_this_suites_actual_size():
+    """The last hand-copied number in the entry, made self-asserting.
+
+    §4 quotes a test count. It went stale the first time two tests were added
+    and nothing caught it, which is the same failure the mutation table had
+    twice. `mutations.py --check` closed that surface; this closes this one.
+    """
+    readme = (HERE / "README.md").read_text()
+    count = len([k for k in globals() if k.startswith("test_")])
+    assert f"{count} tests, " in readme, (
+        f"README.md should say '{count} tests, ' — update §4")
 
 
 # --- runner ---------------------------------------------------------------

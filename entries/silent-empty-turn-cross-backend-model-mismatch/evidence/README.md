@@ -135,6 +135,12 @@ anything outside the stream, and are preserved verbatim.
 
 ## Checks anyone can run without the originals
 
+- **Every line is canonical `json.dumps` output.**
+  `test_every_trace_is_valid_jsonl_and_carries_no_raw_identifiers` asserts it.
+  This is consistent with the parse → substitute → dump pipeline above and
+  inconsistent with a text edit that disturbed spacing. It is **not** a proof of
+  content authenticity: an edit routed through the same pipeline would also be
+  canonical. Only the originals settle that, as stated at the end.
 - **No local identifiers survive.** `grep -c '/Users/\|/tmp/' *.jsonl` returns 0
   for every file. `test_defense.py::test_every_trace_is_valid_jsonl_and_carries_no_raw_identifiers`
   asserts this plus the `thread-` prefix on every `thread_id`.

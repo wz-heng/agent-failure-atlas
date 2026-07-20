@@ -238,9 +238,9 @@ def attribute_model(backend: str, model: str | None) -> str | None:
     newly-released model is a worse failure than the one being fixed. That
     guarantee is why matching is anchored — see MODEL_OWNERSHIP.
     """
-    if not model:
+    if not model or not model.strip():
         return None
-    owner = _namespace_of(model)
+    owner = _namespace_of(model.strip())
     if owner is None or owner == backend:
         return None
     return (
@@ -367,6 +367,14 @@ def oracle_5_pre_spawn_attribution() -> None:
     check("no model set at all", attribute_model("codex", None), None)
     check("an unrecognised name is passed through, not blocked",
           attribute_model("codex", "some-future-model-2027"), None)
+    # The class the check must NOT match, sampled from names that *collide* with
+    # the markers rather than from names chosen because they obviously don't.
+    # "octopus" contains "opus"; "no1se" contains "o1". An unanchored substring
+    # version of this function blocks all three, and shipped for four rounds.
+    for colliding in ("octopus-v2", "no1se", "opus-magnum"):
+        check(f"{colliding!r} is not mistaken for a model of either backend",
+              (attribute_model("codex", colliding),
+               attribute_model("claude-code", colliding)), (None, None))
     if attribute_model("claude-code", "gpt-5.3-codex") is None:
         raise OracleFailure("the check must fail in both directions, "
                             "or it is one hardcoded string")
