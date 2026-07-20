@@ -26,6 +26,8 @@
 |---|---|---|---|---|---|
 | 1 | [限额判别被真实样本证伪](entries/string-classifier-falsified-by-real-samples/) | Claude 侧配额耗尽与服务端限流均为 HTTP 429,且限流那条的限额词汇比真实限额还多;Codex 侧真实限额流中则完全没有 429 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 会话无人值守地死上数小时;或因两秒的抖动空挂五小时 | 分后端:Claude 用结构字段(`rateLimitType` + `resetsAt`);Codex 无此字段,改用经正负两类真实 trace 固定的字符串 marker,纪元则从 rollout 按结构读取 |
 
+| 2 | [只杀进程组 leader 会泄漏后代并阻塞后续任务](entries/leader-only-kill-leaks-descendants/) | 测试稳定卡在同一百分比、委派反复失败——因为一个谁也看不见的进程已经占住了它们要用的资源 | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | 大量时间浪费在误诊上:症状出现在无辜的代码里,而争用状态下做的任何 A/B 实验都只是抛硬币 | 用 `start_new_session=True` 生成;teardown 时对**进程组**发信号并 reap——两半都要,否则只是把孤儿换成僵尸 |
+
 后续条目在各自证据成熟后逐条发布,不攒批。
 
 ---
@@ -39,6 +41,8 @@
 | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | 真实依赖的行为可低成本重现。 |
 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 回放脱敏的真实事件流,稳定复现消费者侧如何失效。供应商行为由版本化的 trace 证明,而非重新触发。 |
 | ![mechanism simulation](https://img.shields.io/badge/evidence-mechanism%20simulation-yellow) | 最小模型演示同*类*机制。显著标注,**不声称**重现原事故。 |
+
+等级描述的是条目的**可运行产物**。没有产物支撑的叙述——比如操作者对某次事故的回忆——根本不进这个等级体系,而是在正文中就地标注为「口述/testimony」,并单独说明存在哪些独立旁证。一个条目可以同时包含「已分级的产物」与「未分级的叙述」,但必须把两者明显分开。
 
 ## 本仓库的自我约束
 

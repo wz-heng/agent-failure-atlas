@@ -30,6 +30,8 @@ is a checkable fact.
 |---|---|---|---|---|---|
 | 1 | [A usage-limit classifier falsified by real samples](entries/string-classifier-falsified-by-real-samples/) | For Claude, a quota-exhausted turn and a server-side throttle both arrive as HTTP 429, and the throttle's prose carries *more* rate-limit vocabulary than the real limit's; for Codex, the real usage limit carries no 429 at all | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | Sessions die unattended for hours — or suspend for hours on a blip that clears in seconds | Per backend: Claude keys on a structured field (`rateLimitType` + `resetsAt`); Codex has no such field, so it keys on a string marker fixed by captured traces of *both* classes, and reads its epoch structurally out of band |
 
+| 2 | [Killing only the process-group leader leaks descendants that block the next run](entries/leader-only-kill-leaks-descendants/) | Tests hang at a stable percentage and delegations fail repeatedly, because a process nobody can see already owns what they need | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | Hours lost to misdiagnosis — the symptom surfaces in code that is not at fault, and any A/B test run under contention is a coin flip | Spawn with `start_new_session=True`; on teardown signal the process **group**, then reap — both halves, or you trade an orphan for a zombie |
+
 More entries land as their evidence matures — one at a time, not as a batch.
 
 ---
@@ -44,6 +46,12 @@ and it is deliberately conservative.
 | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | The real dependency's behaviour is reproducible at low cost. |
 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | A redacted real event stream is replayed, reproducing how the consumer failed. The vendor's behaviour is proven by the versioned trace, not re-elicited. |
 | ![mechanism simulation](https://img.shields.io/badge/evidence-mechanism%20simulation-yellow) | A minimal model demonstrates the same *class* of mechanism. Prominently labelled; **does not** claim to reproduce the original incident. |
+
+The grade describes an entry's **runnable artifact**. Narrative that no
+artifact establishes — an operator's recollection of an incident, say — is not
+graded on this scale at all; it is labelled inline as testimony, with whatever
+independent corroboration exists stated separately. An entry may pair a graded
+artifact with ungraded narrative, and must then keep the two visibly apart.
 
 ## Rules this repo holds itself to
 
