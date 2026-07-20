@@ -77,34 +77,59 @@ TRACE_DIGESTS = {
 # figure appears in each file, not which sentence each occurrence sits in.
 # Moving a correct figure from one paragraph to another inside the same file is
 # not detected. Editing, deleting, or duplicating one is.
+# Every ANCHOR must contain the figure itself, and must cover EVERY
+# localisation of it -- English prose, tables, the Chinese summary, and both
+# root READMEs. An earlier revision anchored only the English phrasing, so
+# editing the Chinese summary's copy of the same figure left the count
+# unchanged and the checker green. A reviewer found that by mutation too;
+# `check_mutation_coverage.py` now proves it cannot recur — and it immediately
+# found one: an anchor branch matching Chinese text that does not contain the
+# English literal cannot detect a change to that text, so the Chinese numerals
+# ("四", "五") now carry their own claims rather than riding an English one.
 ANCHORS: dict[str, str] = {
-    "A.turn_count":            r"across \*\*20\*\* turns",
-    "A.billed_turn_count":     r"\*\*15\*\* carry usage",
-    "B.turn_count":            r"across its \*\*66\*\* turns",
-    "gap.long_n":              r"after a >1h gap \| \*\*20\*\*",
-    "gap.short_n":             r"after a .1h gap \| \*\*75\*\*",
-    "price.reconciling_1h":    r"\*\*95\*\* of \*\*99\*\* priced turns|95 of\s+the 99 priced turns|\*\*95\*\* fit",
-    "price.priced_turns":      r"\*\*95\*\* of \*\*99\*\* priced turns|the 99 priced turns|99 个计费轮中 95 轮",
+    "A.turn_count":            r"across \*\*20\*\* turns|\*\*20\*\* 个 turn",
+    "A.billed_turn_count":     r"\*\*15\*\* carry usage|\*\*15\*\* 个轮次带有用量",
+    "B.turn_count":            r"across its \*\*66\*\* turns|\*\*66\*\* 个轮次",
+    "gap.long_n":              r"after a >1h gap \| \*\*20\*\*|>1h 间隔 \*\*20\*\* 轮",
+    "gap.short_n":             r"after a .1h gap \| \*\*75\*\*|1h 间隔 \*\*75\*\* 轮",
+    "price.reconciling_1h":    r"\*\*95\*\* of \*\*99\*\* priced turns|95 fit\b|\*\*95\*\* 轮",
+    "price.priced_turns":      r"\*\*95\*\* of \*\*99\*\* priced turns|the 99 priced turns|\*\*99\*\* 个计费轮",
     "price.unreconciled":      r"\*\*four turns do not\s+reconcile\*\*|pins the count at \*\*four\*\*",
-    "B.jul15_write_turns":     r"\*\*five\*\* turns rewriting|\*\*五\*\*个",
+    "price.unreconciled.zh":   r"有四轮无法对账",
+    "B.jul15_write_turns":     r"\*\*five\*\* turns rewriting",
+    "B.jul15_write_turns.zh":  r"\*\*五\*\*个重写",
     "codex.turn_count":        r"\*\*6\*\*-turn codex session|\*\*6\*\* 轮 codex",
-    "codex.long_gap_zero_write": r"\*\*132\*\*-minute gap|\*\*132\*\* 分钟间隔|132-minute gap",
-    "B.peak_duration_seconds": r"\*\*131\*\* seconds|\*\*131\*\* 秒|131-second",
-    "C.sibling_delay_seconds": r"\*\*81\*\* seconds|\*\*81\*\* 秒|81 seconds after|81s after|\+81 seconds",
+    "codex.long_gap_zero_write": r"\*\*132\*\*-minute gap|\*\*132\*\* 分钟间隔|132-minute codex gap",
+    "B.peak_duration_seconds": r"\*\*131\*\* seconds|\*\*131\*\* 秒|131-second turn",
+    "C.sibling_delay_seconds": r"\*\*81\*\* seconds|\*\*81\*\* 秒|81s after B|81-second sibling",
+    "B.priced_turns":          r"\| B \| 60 \||60 个计费轮",
+    "B.reconciled_turns":      r"\*\*56\*\* \||56 轮对账",
+    "C.priced_turns":          r"\| C \| 24 \||24 轮",
+    "A.reconciled_turns":      r"\| A \| 15 \| \*\*15\*\*|15 个计费轮\*\*全部\*\*对账",
 }
 
 BOUND_FILES = {
     "README.md": HERE / "README.md",
+    "evidence/README.md": HERE / "evidence" / "README.md",
     "root README.md": HERE.parent.parent / "README.md",
     "root README.zh-CN.md": HERE.parent.parent / "README.zh-CN.md",
 }
 
 
 def _pattern(key: str, literal: str) -> str:
+    """Regex for one claim's literal.
+
+    The right boundary forbids only a DIGIT continuation -- `(?!\d|[.,]\d)` --
+    so "20" still refuses to match inside "20,000" or "2026", but a figure at
+    the end of a sentence ("... 9.2%.") is matched. An earlier revision excluded
+    plain `.` and `,` outright, which silently dropped every sentence-final
+    occurrence: the root README's "9.2%." counted as zero matches, so editing it
+    was invisible. A reviewer found it by mutation.
+    """
     if key in ANCHORS:
         return ANCHORS[key]
     if literal[0].isdigit() or literal[0] == "$":
-        return r"(?<![\d,.$])" + re.escape(literal) + r"(?![\d,.%])"
+        return r"(?<![\d,.$])" + re.escape(literal) + r"(?!\d|[.,]\d)"
     return re.escape(literal)
 
 
@@ -122,16 +147,16 @@ EXPECTED_COUNTS = {
     'A.cache_read_tokens': {'README.md': 3},
     'A.output_tokens': {'README.md': 5},
     'A.read_to_output_ratio': {'README.md': 2},
-    'A.total_cost': {'README.md': 6},
+    'A.total_cost': {'README.md': 6, 'evidence/README.md': 1},
     'A.context_share': {'README.md': 5, 'root README.md': 1, 'root README.zh-CN.md': 1},
-    'A.generation_share': {'README.md': 10, 'root README.zh-CN.md': 1},
+    'A.generation_share': {'README.md': 12, 'root README.md': 1, 'root README.zh-CN.md': 1},
     'A.cache_read_line': {'README.md': 5},
     'A.cache_write_line': {'README.md': 3},
-    'A.output_line': {'README.md': 1},
-    'A.input_line': {'README.md': 1},
+    'A.output_line': {'README.md': 2},
+    'A.input_line': {'README.md': 2},
     'A.worst_turn_cache_read': {'README.md': 2},
-    'A.call_floor': {'README.md': 4},
-    'A.turn_count': {'README.md': 1},
+    'A.call_floor': {'README.md': 4, 'evidence/README.md': 1},
+    'A.turn_count': {'README.md': 2},
     'A.billed_turn_count': {'README.md': 1},
     'B.peak_cache_write': {'README.md': 4},
     'B.peak_cost': {'README.md': 9, 'root README.md': 1, 'root README.zh-CN.md': 1},
@@ -139,20 +164,27 @@ EXPECTED_COUNTS = {
     'B.peak_write_share': {'README.md': 2},
     'B.peak_output_tokens': {'README.md': 6, 'root README.md': 1, 'root README.zh-CN.md': 1},
     'B.peak_duration_seconds': {'README.md': 4, 'root README.md': 1},
-    'B.peak_idle_hours': {'README.md': 2},
-    'B.lifetime_cost': {'README.md': 5},
+    'B.peak_idle_hours': {'README.md': 2, 'evidence/README.md': 1},
+    'B.lifetime_cost': {'README.md': 5, 'evidence/README.md': 1},
     'B.turn_count': {'README.md': 1},
     'B.jul15_write_line': {'README.md': 4},
-    'B.jul15_write_turns': {'README.md': 4},
+    'B.jul15_write_turns.zh': {'README.md': 1},
+    'B.jul15_write_turns': {'README.md': 2},
     'C.sibling_cost': {'README.md': 2},
     'C.sibling_cache_write': {'README.md': 2},
-    'C.sibling_delay_seconds': {'README.md': 4},
-    'price.reconciling_1h': {'README.md': 1},
-    'price.priced_turns': {'README.md': 2},
+    'C.sibling_delay_seconds': {'README.md': 4, 'evidence/README.md': 2},
+    'A.reconciled_turns': {'README.md': 2},
+    'B.priced_turns': {'README.md': 2},
+    'B.reconciled_turns': {'README.md': 2},
+    'C.priced_turns': {'README.md': 2},
+    'C.total_cost': {'evidence/README.md': 1},
+    'price.reconciling_1h': {'README.md': 1, 'evidence/README.md': 1},
+    'price.priced_turns': {'README.md': 1, 'evidence/README.md': 1},
+    'price.unreconciled.zh': {'README.md': 1},
     'price.unreconciled': {'README.md': 1},
-    'price.zero_token_charge': {'README.md': 2},
-    'gap.long_n': {'README.md': 1},
-    'gap.short_n': {'README.md': 1},
+    'price.zero_token_charge': {'README.md': 2, 'evidence/README.md': 1},
+    'gap.long_n': {'README.md': 2},
+    'gap.short_n': {'README.md': 2},
     'gap.long_median': {'README.md': 2},
     'gap.short_median': {'README.md': 2},
     'gap.A_long': {'README.md': 4},
@@ -162,7 +194,7 @@ EXPECTED_COUNTS = {
     'gap.C_long': {'README.md': 2},
     'gap.C_short': {'README.md': 2},
     'codex.turn_count': {'README.md': 2},
-    'codex.long_gap_zero_write': {'README.md': 2},
+    'codex.long_gap_zero_write': {'README.md': 2, 'evidence/README.md': 1},
 }
 
 
@@ -278,6 +310,10 @@ CLAIMS: list[tuple[str, str, callable]] = [
          cost_parts(r, CACHE_WRITE_MULTIPLIER_1H)["cache_write"]
          for r in billed(load(B))
          if r["created_at"].startswith("2026-07-15") and r["cache_creation_tokens"] >= 400_000)),
+    ("B.jul15_write_turns.zh", "五",
+     lambda: {5: "五"}.get(sum(
+         1 for r in billed(load(B))
+         if r["created_at"].startswith("2026-07-15") and r["cache_creation_tokens"] >= 400_000), "?")),
     ("B.jul15_write_turns", "five",
      lambda: {5: "five"}.get(sum(
          1 for r in billed(load(B))
@@ -291,9 +327,24 @@ CLAIMS: list[tuple[str, str, callable]] = [
     ("C.sibling_delay_seconds", "81",
      lambda: str(round(abs((when(min(billed(load(C)), key=lambda r: abs((when(r) - when(peak_rewrite(B))).total_seconds()))) - when(peak_rewrite(B))).total_seconds())))),
 
+    # --- the per-session reconciliation table (README §3, evidence/README)
+    ("A.reconciled_turns", "15",
+     lambda: str(sum(1 for r in load(A) if r["cost"] and
+                     abs(sum(cost_parts(r, CACHE_WRITE_MULTIPLIER_1H).values()) - r["cost"]) / r["cost"] < 0.001))),
+    ("B.priced_turns", "60", lambda: str(sum(1 for r in load(B) if r["cost"]))),
+    ("B.reconciled_turns", "56",
+     lambda: str(sum(1 for r in load(B) if r["cost"] and
+                     abs(sum(cost_parts(r, CACHE_WRITE_MULTIPLIER_1H).values()) - r["cost"]) / r["cost"] < 0.001))),
+    ("C.priced_turns", "24", lambda: str(sum(1 for r in load(C) if r["cost"]))),
+    ("C.total_cost", "$69.92", lambda: f"${sum(r['cost'] for r in load(C)):.2f}"),
+
     # --- the pricing reconciliation
     ("price.reconciling_1h", "95", lambda: str(reconciling_turns(CACHE_WRITE_MULTIPLIER_1H)[0])),
     ("price.priced_turns", "99", lambda: str(reconciling_turns(CACHE_WRITE_MULTIPLIER_1H)[1])),
+    ("price.unreconciled.zh", "四",
+     lambda: {4: "四"}.get(
+         reconciling_turns(CACHE_WRITE_MULTIPLIER_1H)[1]
+         - reconciling_turns(CACHE_WRITE_MULTIPLIER_1H)[0], "?")),
     ("price.unreconciled", "four",
      lambda: {4: "four"}.get(
          reconciling_turns(CACHE_WRITE_MULTIPLIER_1H)[1]

@@ -246,9 +246,14 @@ for any turn, including the $20.6988 one. What it claims is an association
 within four traces, a documented pricing mechanism that would explain it, and
 nothing joining the two.
 
-Pooled across the three claude-code traces:
+Pooled across the three claude-code traces. The quantity is the **cache-write
+share** — `cache_creation / (cache_creation + cache_read)`, i.e. of the cache
+tokens a turn touched, the fraction it had to write rather than read. It is
+**not** the fraction of the session's context that was rewritten: as
+[§5](#5-discrimination-and-defense) explains, the session's context size is not
+in this ledger at all, so no figure here can be read that way.
 
-| | turns | median share of context rewritten |
+| | turns | median cache-write share |
 |---|---:|---:|
 | after a >1h gap | **20** | **28.1%** |
 | after a ≤1h gap | **75** | **1.2%** |
@@ -259,16 +264,16 @@ undercut reading it as a predictive result:
 - **The turns are nested in three sessions, not 95 independent samples.** Split
   by session, the effect is not consistent — **it reverses in session A**:
 
-  | trace | median after >1h | median after ≤1h |
+  | trace | median cache-write share after >1h | after ≤1h |
   |---|---:|---:|
   | session A | **0.2%** | **5.8%** |
   | session B | **47.4%** | **0.8%** |
   | session C | **20.6%** | **3.1%** |
 
-- **Not sufficient.** Some turns following gaps of over an hour rewrote as
-  little as 0.2% of their context.
-- **Not necessary.** Some turns following gaps of *minutes* rewrote 93% of
-  their context. In session B, three consecutive turns within seven minutes each
+- **Not sufficient.** Some turns following gaps of over an hour wrote as little
+  as 0.2% of the cache tokens they touched.
+- **Not necessary.** Some turns following gaps of *minutes* wrote 93% of theirs.
+  In session B, three consecutive turns within seven minutes each
   rewrote ~370,000 tokens — elapsed time cannot explain that, and I do not know
   what does. Cache-prefix invalidation is the obvious candidate and I have no
   evidence for it.
@@ -298,8 +303,8 @@ and proved nothing. Review caught it.
 ### The counterfactual — `mechanism simulation`, and nothing more
 
 The ledger records what the marathon sessions were billed. It cannot record what
-the same work would have cost under different session hygiene, because that run
-never happened. [`simulate.py`](simulate.py) runs both arms against a fake clock
+the same synthetic task sequence, on the same output-token budget, would have
+cost under different session hygiene, because that run never happened. [`simulate.py`](simulate.py) runs both arms against a fake clock
 and a fake TTL cache: 16 synthetic tasks, an identical output-token budget in
 both arms, one arm in a single growing session and one retiring the session at a
 context watermark.
@@ -363,9 +368,9 @@ cannot look good by simply doing less).
 **Regression tests and the claims checker:**
 
 ```bash
-python3 test_defense.py            # or, if pytest is installed:
-python3 -m pytest test_defense.py -q
-python3 claims.py --check          # every quoted number, vs traces AND prose
+python3 test_defense.py                  # or: python3 -m pytest test_defense.py -q
+python3 claims.py --check                # every quoted number, vs traces AND prose
+python3 check_mutation_coverage.py       # ~26s: proves the above has no holes
 ```
 
 `test_defense.py` pins the proposed defense and the structural properties of the
@@ -388,6 +393,21 @@ Its own limitation is documented in the file rather than left implied: counts
 pin how many times a figure appears in each file, not which sentence each
 occurrence sits in. Moving a correct figure between paragraphs of the same file
 is not detected; editing, deleting or duplicating one is.
+
+**And the checker is itself checked.** Four review rounds produced four
+successive versions of "the prose is pinned to the evidence", and a reviewer
+defeated each one with a mutation I had not thought of: the tests never read the
+README; presence is not location; the numeric boundary silently dropped any
+figure ending a sentence; the anchors covered only the English phrasing.
+Every fix was correct and every one left a hole, because I kept confirming
+coverage *by reading*. `check_mutation_coverage.py` stops that: it walks all
+**51** claims, perturbs each of the **167** individual occurrences across the
+four bound files one at a time, and asserts `claims.py --check` goes red *and
+names that claim*. It found a real hole on its first run — an anchor branch
+matching Chinese text that did not contain the English literal, which therefore
+could never detect a change to it — and that is why the Chinese numerals now
+carry their own claims. A coverage argument you can execute beats one you can
+read.
 
 One test exists because of a bug in this entry's own simulation.
 `test_defense_is_inert_when_the_watermark_is_never_reached` pins a case that
@@ -525,7 +545,7 @@ doing.
 
 **账本纠正了当时笔记的四处错误(如实记录而非悄悄改掉)**:(a) 「4370 万 cache-read ≈ $54」——token 数没错,但 **$53.85 是整场总额**,cache-read 行本身只有 **$21.86**;(b) B 会话一生笔记记为 **$212**,账本是 **$235.7484**;(c) 「当天四次唤醒税约 $50」实为**五**个轮次、cache-write 行共 **$56.80**;(d) 「1,042 条消息」**无法核实**——session 行与全部消息此后已被删除,只剩用量账本;「近 1M 上下文」改由那次针对 1,000,000 token 窗口的 974,755 token 重写佐证。此外还纠正了本条目自身的措辞:笔记说钱花在**重读**上,方向是对的(上下文行 90.8% vs 输出 9.2%),但 A 会话内部**写入行 $26.85 其实大于读取行 $21.86**。
 
-**因果claim到哪里为止(最重要的一节)**:最顺手的句子是「会话闲置超过 TTL,所以缓存失效,所以下一轮重写了它」。**本条目不对任何一轮做此主张,包括那笔 $20.6988。** 它主张的是:四条 trace 内的一个关联、一个有据可查的计价机制、以及**两者之间没有连线**。三条 claude-code trace 汇总:>1h 间隔 **20** 轮、重写占比中位数 **28.1%**;≤1h 间隔 **75** 轮、中位数 **1.2%**。但这个汇总对比是**描述性的,不是推断性的**,有三点削弱把它读成预测结论:**其一,这些轮次嵌套在三个会话里,不是 95 个独立样本**——按会话拆开效果并不一致,**在 A 会话甚至反向**(A:长间隔 **0.2%** vs 短间隔 **5.8%**;B:**47.4%** vs **0.8%**;C:**20.6%** vs **3.1%**);**其二,不充分**——有 >1h 间隔只重写 0.2% 的;**其三,不必要**——有 ≤1h 间隔重写 93% 的,B 会话里甚至有连续三轮在七分钟内各自重写约 37 万 token,流逝时间解释不了,而我**不知道**什么能解释(缓存前缀失效是显而易见的候选,但我没有证据)。所以:**在这些 trace 中,超过缓存 TTL 对重写尖峰既不充分也不必要。** 另有一个**差点炮制出假结果的仪表混淆项**:**codex** 后端在**每一轮**都把 `cache_creation_tokens` 记为 0——而这是**关于适配器的源码事实,不是从六行数据推出的推断**:Owlery 的 codex 用量归一化函数(`server/harness/codex.py` 的 `_normalize_usage`)只用 Codex 实际发出的四个字段(`input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens`)构造 `TokenUsage`,**从头到尾没有给 `cache_creation_tokens` 赋过值**,于是它取默认的零。存下来的这个零意味着「未报告」,而不是「没有写入」;`evidence/codex_no_cache_field_D.jsonl` 是一个真实的 **6** 轮 codex 会话,专为此收录,其中就有一段 **132** 分钟间隔后「重写 0 token」的轮次。天真地汇总进去,这类轮次会形成一批「长间隔却毫无重写」的漂亮样本,而那纯属仪表假象。oracle 4 排除了 codex 后端,并且 `test_trace_the_codex_exclusion_is_not_vacuous` 会**先断言该 trace 非空**再断言那些零值——早先的版本在**根本没有提交任何 codex 数据**的情况下就写下了这个说法,于是测试对着空列表通过、什么也没证明,是复核抓出来的。
+**因果claim到哪里为止(最重要的一节)**:最顺手的句子是「会话闲置超过 TTL,所以缓存失效,所以下一轮重写了它」。**本条目不对任何一轮做此主张,包括那笔 $20.6988。** 它主张的是:四条 trace 内的一个关联、一个有据可查的计价机制、以及**两者之间没有连线**。三条 claude-code trace 汇总(统计量是**缓存写入占比** `cache_creation / (cache_creation + cache_read)`,即**该轮所触及的缓存 token 中,不得不写入而非读取的那一部分**;它**不是**「会话上下文被重写的比例」——如防御段所述,会话的上下文大小根本不在这个账本里,因此这里没有任何数字可以那样读):>1h 间隔 **20** 轮、中位数 **28.1%**;≤1h 间隔 **75** 轮、中位数 **1.2%**。但这个汇总对比是**描述性的,不是推断性的**,有三点削弱把它读成预测结论:**其一,这些轮次嵌套在三个会话里,不是 95 个独立样本**——按会话拆开效果并不一致,**在 A 会话甚至反向**(A:长间隔 **0.2%** vs 短间隔 **5.8%**;B:**47.4%** vs **0.8%**;C:**20.6%** vs **3.1%**);**其二,不充分**——有 >1h 间隔、写入占比只有 0.2% 的;**其三,不必要**——有 ≤1h 间隔、写入占比高达 93% 的,B 会话里甚至有连续三轮在七分钟内各自重写约 37 万 token,流逝时间解释不了,而我**不知道**什么能解释(缓存前缀失效是显而易见的候选,但我没有证据)。所以:**在这些 trace 中,超过缓存 TTL 对重写尖峰既不充分也不必要。** 另有一个**差点炮制出假结果的仪表混淆项**:**codex** 后端在**每一轮**都把 `cache_creation_tokens` 记为 0——而这是**关于适配器的源码事实,不是从六行数据推出的推断**:Owlery 的 codex 用量归一化函数(`server/harness/codex.py` 的 `_normalize_usage`)只用 Codex 实际发出的四个字段(`input_tokens`、`cached_input_tokens`、`output_tokens`、`reasoning_output_tokens`)构造 `TokenUsage`,**从头到尾没有给 `cache_creation_tokens` 赋过值**,于是它取默认的零。存下来的这个零意味着「未报告」,而不是「没有写入」;`evidence/codex_no_cache_field_D.jsonl` 是一个真实的 **6** 轮 codex 会话,专为此收录,其中就有一段 **132** 分钟间隔后「重写 0 token」的轮次。天真地汇总进去,这类轮次会形成一批「长间隔却毫无重写」的漂亮样本,而那纯属仪表假象。oracle 4 排除了 codex 后端,并且 `test_trace_the_codex_exclusion_is_not_vacuous` 会**先断言该 trace 非空**再断言那些零值——早先的版本在**根本没有提交任何 codex 数据**的情况下就写下了这个说法,于是测试对着空列表通过、什么也没证明,是复核抓出来的。
 
 **防御**:两条操作纪律加一件该建的东西。**一任务一会话**——会话的上下文是单调增长的负债,不会因为你停止打字就不再是负债。**无关的新工作宁可开新会话,也不要丢给一个大的闲置会话**——在这些 trace 里,回来的第一轮无论自身产出多小都被计入了重写行(上例是 $19.50 的写入对 $0.15 的输出)。**该建的东西是上下文水位线**:`context_tokens >= window * threshold` 就退休该会话。整个防御就这一行,不需要知道会话在做什么,**但它需要一项目前并不存在的埋点**(见下)。
 

@@ -74,5 +74,10 @@ entries/<slug>/
   mutations.py     条目引用变异测试数字时:负责生成,并用 `--check` 断言正文未漂移
   simulate.py      条目同时包含实测产物与模拟产物时:模拟独立成文件、独立横幅,
                    使其数字永远不会被当作实测读
+  claims.py        正文引用的每个数字:从证据重算,并钉住它出现的位置;
+                   `--check` 在任一方向漂移时失败
+  check_mutation_coverage.py
+                   逐个改动每条 claim 的每一处出现,断言 checker 能抓到——
+                   使「正文已被钉住」成为跑出来的性质,而不是声称出来的
 docs/              设计短文
 ```

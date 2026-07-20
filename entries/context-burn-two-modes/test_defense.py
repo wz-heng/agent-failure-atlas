@@ -204,7 +204,7 @@ def test_trace_session_a_totals_match_the_entry() -> None:
     assert round(sum(r["cost"] for r in rows), 4) == 53.8524
 
 
-def test_trace_session_b_wakeup_turn_matches_the_entry() -> None:
+def test_trace_session_b_largest_rewrite_matches_the_entry() -> None:
     rows = billed(load("cold_rewrite_B.jsonl"))
     peak = max(rows, key=lambda r: r["cache_creation_tokens"])
     assert peak["created_at"].startswith("2026-07-15T06:06:34")
@@ -282,7 +282,7 @@ def test_claims_checker_agrees_with_traces_and_prose() -> None:
 
 
 def test_trace_only_the_1h_rate_reconciles() -> None:
-    """The finding that identifies the TTL from billing. Pinned here as well
+    """The finding that identifies the billed cache SKU from billing. Pinned here as well
     as in repro.py, because it is the load-bearing premise of every dollar
     figure in the entry."""
     rows = [r for name in ALL_TRACES for r in load(name)]

@@ -246,15 +246,15 @@ def main() -> int:
         "the same shape oracle 2 measures in the real session-A trace",
     )
 
-    # The wakeup tax is per-idle-gap, so it scales with how many times you
-    # come back -- not with how much work you do.
+    # The cold rewrite is charged per idle gap, so it scales with how many
+    # times you come back -- not with how much work you do.
     lonely, _, _ = run_session_strategy(None)
     print()
     check(
-        "every task after the first pays a cold-start write in the marathon",
+        "every task after the first is charged a cold-start write in the marathon",
         marathon.cache_write_tokens > BASE_CONTEXT * TASK_COUNT,
         f"{marathon.cache_write_tokens:,} tokens rewritten across "
-        f"{TASK_COUNT} wakeups",
+        f"{TASK_COUNT} returns from idle",
     )
     check(
         "the watermark defense fires exactly where it is told to",

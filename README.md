@@ -88,6 +88,13 @@ entries/<slug>/
   simulate.py      where an entry pairs a measured artifact with a simulated
                    one: the simulation lives in its own file, under its own
                    banner, so its numbers can never be read as measurements
+  claims.py        every figure the prose quotes, recomputed from the evidence
+                   and pinned to where it appears; `--check` fails on drift in
+                   either direction
+  check_mutation_coverage.py
+                   perturbs each occurrence of each claim in turn and asserts
+                   the checker catches it — so "the prose is pinned" is a
+                   property that was executed, not one that was asserted
 docs/              design notes
 ```
 

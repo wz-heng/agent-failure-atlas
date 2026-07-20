@@ -295,7 +295,11 @@ def oracle_ttl_is_not_a_predictor(traces: dict[str, list[dict]]) -> None:
     "The session went idle past the TTL, so the cache expired, so the next turn
     rewrote it" is a mechanism story. These traces show a pooled association
     CONSISTENT WITH it — not support for it: turns following a >1h gap rewrite a
-    larger share of their context than turns following a short gap. Nothing here
+    larger share of the CACHE TOKENS THEY TOUCHED than turns following a short
+    gap. That ratio is cache_creation / (cache_creation + cache_read) -- a
+    property of one turn's cache traffic, NOT the fraction of the session's
+    context that was rewritten. The ledger does not contain the session's
+    context size at all (README.md 5). Nothing here
     joins the association to the mechanism. And per-turn it fails outright:
     there are long-gap turns that rewrite almost nothing, and short-gap turns
     that rewrite almost everything.
@@ -324,22 +328,23 @@ def oracle_ttl_is_not_a_predictor(traces: dict[str, list[dict]]) -> None:
     median_short = statistics.median(short_gap)
 
     check(
-        "pooled: the median >1h-gap turn rewrites a far larger share of context",
+        "pooled: the median >1h-gap turn writes a far larger share of the cache "
+        "tokens it touched",
         median_long > median_short * 5,
-        f"median rewrite share {median_long:.1%} (n={len(long_gap)}) after a long gap "
+        f"median cache-write share {median_long:.1%} (n={len(long_gap)}) after a long gap "
         f"vs {median_short:.1%} (n={len(short_gap)}) after a short one "
         f"= {median_long / median_short:.0f}x",
     )
     check(
-        "BUT some >1h-gap turns rewrite almost nothing (not sufficient)",
+        "BUT some >1h-gap turns write almost none of it (not sufficient)",
         min(long_gap) < 0.05,
-        f"lowest rewrite share after a long gap: {min(long_gap):.1%} — "
+        f"lowest cache-write share after a long gap: {min(long_gap):.1%} — "
         "so exceeding the TTL does not guarantee a rewrite",
     )
     check(
-        "AND some short-gap turns rewrite almost everything (not necessary)",
+        "AND some short-gap turns write almost all of it (not necessary)",
         max(short_gap) > 0.50,
-        f"highest rewrite share after a <1h gap: {max(short_gap):.1%} — "
+        f"highest cache-write share after a <1h gap: {max(short_gap):.1%} — "
         "so a rewrite spike does not imply the session was idle",
     )
     check(
