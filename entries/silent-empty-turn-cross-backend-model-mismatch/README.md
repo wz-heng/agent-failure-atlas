@@ -183,9 +183,10 @@ anymore. Both emit an explicit `error` and `turn.failed` carrying
 
 > `{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'Claude-opus-4-8' model is not supported when using Codex with a ChatGPT account."}}`
 
-and both exit **1**. The same `0.142.5` binary handles a normal turn correctly
-in the same session, so the rejection is not an artifact of running an old build
-today.
+and both exit **1**. The same `0.142.5` install handles a normal turn correctly
+in a separate control invocation from the same capture environment, configured
+identically apart from the model flag and prompt, so the rejection is not an
+artifact of running an old build today.
 
 Two consequences, both stated plainly rather than smoothed over:
 
@@ -308,8 +309,9 @@ success-shaped, the warning still serialized ahead of `turn.started` — so the
 prose cannot drift away from the traces. A last test asserts that this very
 count is the one §4 quotes, because it had already gone stale once.
 
-**Mutation-tested, and the table is generated rather than typed.** The last row
-is the one that matters most: it restores the unanchored substring matching that
+**Mutation-tested, and the table is generated rather than typed.** The
+attribution row is the one that matters most: it restores the unanchored
+substring matching that
 shipped in rounds 1–4 and turns both scripts red, so the collision regression is
 enforced by the table rather than by a test nobody re-runs.
 
@@ -333,7 +335,8 @@ run if the baseline is not green or if a mutation no longer matches exactly once
 | emit an empty-string event instead of no event | 1 | **green** |
 | attribute models by unanchored substring (the round-1..4 bug) | 2 | red |
 
-The last row is the honest one. That mutation is inert at the outcome level — a
+The empty-string row is the honest one. That mutation is inert at the outcome
+level — a
 `""` event and no event are indistinguishable once the outcome filters empty
 text — so no end-to-end oracle can catch it, and none pretends to. It is caught
 by `test_an_empty_message_produces_no_event_at_all`, which asserts on the parser
@@ -509,7 +512,7 @@ cause, and it would have made all three rings visible on the first day.
 - **第二环(07-19)**:另一个 agent 用**正确**的模型名出现同样症状,病因是服务端 400「requires a newer version of Codex」(本机 0.142.5 过旧)。**推论比单个 bug 更值钱:我撞到的这两次服务端拒绝长着同一张脸,而机制预示其它的也会**——因为它们都以「缺席」抵达用户,而缺席之间彼此无法区分。两个样本当然不足以支撑全称判断;真正的理由是 §5 里那个**根本不看病因**的消费者侧机制。
 - **第三环(07-19)**:`npm install -g` 报成功,症状依旧,`codex --version` 仍是 0.142.5。双安装:升级落在 `/opt/homebrew/bin/codex`(0.144.6),而 PATH 先命中 `~/.local/bin/codex` 这个符号链接。`which codex`(单数)只显示一条路径,并告诉你它没问题。**诊断第一条命令应是 `which -a`,不是 `which`。** 须说明:文件系统时间戳只证明该符号链接在 10:37 被重写过,**不证明它此前指向何处**——旧安装今天在这台机器上已无任何残留,因此「遮蔽机制」本身仍属口述,时间戳只旁证时点。
 
-**证据等级(两级,不可混用),以及一次「失败的复现」**:*消费者侧缺陷*是 `trace replay`——`repro.py` 用 fake CLI 通过真实管道回放真实捕获的事件流,确定性地重现「被判为成功却什么都没交付」的一轮。但**事故本身复现失败,且这一点被写进了条目**:用事故当天的构建 `0.142.5` 和当前的 `0.144.6` 重跑事故的原始配置,两者**今天都会明确报错**(`error` + `turn.failed`,退出码 1,消息为 400 `The 'Claude-opus-4-8' model is not supported when using Codex with a ChatGPT account.`);同一个 0.142.5 二进制在同一次会话里跑正常 turn 完全正常,所以这不是「拿旧版今天跑」的假象。由此两条结论照实写出:**(a) 事故当年的静默形状在今天的两个构建上都复现不出来,而差异究竟落在哪一侧「未定」**——「服务端改了行为」与这些捕获一致,也是我的先验,但**不能作为结论提出**:本可支持它的那个观察(事故当天的二进制今天是响的),恰恰被那些让一切「未定」的差异所干扰。这些捕获**排除不掉**别的可能:今天跑 0.142.5 用的是一次性 `CODEX_HOME` 加 `--ignore-user-config`,*客户端*配置同样与事故当时不同;账号/套餐状态可能已变;而记录里的「零错误事件」也可能本就是指「Owlery 里什么都没浮现」——而那恰恰是本条目所展示的、消费者对渲染不出的记录所做的事。「未定」同时意味着本条目**不能断言第三环的升级修好了或没修好什么**;在这里指认一个原因,正是仓库明令禁止的「把相关性写成因果」。**(b) 本条目不声称、也无法声称对该事故的 live reproduction**——`repro.py` 的 oracle 2 专门断言「今天的拒绝是响的」,把这条**没能复现**的事实固化成断言,防止日后文案悄悄膨胀。空 turn 的捕获样本则是通过「让模型不要输出任何消息」得到的:**同样的形状,不同的成因**,是真实未经编辑的捕获,不是对事故的重建。事故细节(11–30 秒、0 token、空最终消息、误诊顺序、双安装)全部是口述;唯一幸存的物证是两个文件系统时间戳:0.144.6 装于 07-19 10:18:13,`~/.local/bin/codex` 符号链接在 10:37:04 被**重写**——那 19 分钟就是第三环。但这两个时间戳只钉住了**修复的时点**:它们不记录该符号链接在 10:37 之前指向何处(旧安装今天已无残留),因此「遮蔽机制」本身仍是口述。
+**证据等级(两级,不可混用),以及一次「失败的复现」**:*消费者侧缺陷*是 `trace replay`——`repro.py` 用 fake CLI 通过真实管道回放真实捕获的事件流,确定性地重现「被判为成功却什么都没交付」的一轮。但**事故本身复现失败,且这一点被写进了条目**:用事故当天的构建 `0.142.5` 和当前的 `0.144.6` 重跑事故的原始配置,两者**今天都会明确报错**(`error` + `turn.failed`,退出码 1,消息为 400 `The 'Claude-opus-4-8' model is not supported when using Codex with a ChatGPT account.`);同一个 0.142.5 安装在同一捕获环境下的另一次独立 control invocation(除 model flag 与 prompt 外配置相同)跑正常 turn 完全正常,所以这不是「拿旧版今天跑」的假象。由此两条结论照实写出:**(a) 事故当年的静默形状在今天的两个构建上都复现不出来,而差异究竟落在哪一侧「未定」**——「服务端改了行为」与这些捕获一致,也是我的先验,但**不能作为结论提出**:本可支持它的那个观察(事故当天的二进制今天是响的),恰恰被那些让一切「未定」的差异所干扰。这些捕获**排除不掉**别的可能:今天跑 0.142.5 用的是一次性 `CODEX_HOME` 加 `--ignore-user-config`,*客户端*配置同样与事故当时不同;账号/套餐状态可能已变;而记录里的「零错误事件」也可能本就是指「Owlery 里什么都没浮现」——而那恰恰是本条目所展示的、消费者对渲染不出的记录所做的事。「未定」同时意味着本条目**不能断言第三环的升级修好了或没修好什么**;在这里指认一个原因,正是仓库明令禁止的「把相关性写成因果」。**(b) 本条目不声称、也无法声称对该事故的 live reproduction**——`repro.py` 的 oracle 2 专门断言「今天的拒绝是响的」,把这条**没能复现**的事实固化成断言,防止日后文案悄悄膨胀。空 turn 的捕获样本则是通过「让模型不要输出任何消息」得到的:**同样的形状,不同的成因**,是真实捕获(仅带已记录的 identifier-only 脱敏,除此之外未作改动),不是对事故的重建。事故细节(11–30 秒、0 token、空最终消息、误诊顺序、双安装)全部是口述;唯一幸存的物证是两个文件系统时间戳:0.144.6 装于 07-19 10:18:13,`~/.local/bin/codex` 符号链接在 10:37:04 被**重写**——那 19 分钟就是第三环。但这两个时间戳只钉住了**修复的时点**:它们不记录该符号链接在 10:37 之前指向何处(旧安装今天已无残留),因此「遮蔽机制」本身仍是口述。
 
 **防御**:关键的一行不需要知道任何模型名、版本或供应商——**「终态成功但没有交付任何助手内容」不是成功**,直接判失败并显式报错。它不枚举病因,而是断言不变量,因此第一环、第二环、以及将来的第四环都能接住。代价照实说:该判据以助手**文本**为准,一个合法地「只做工具调用、无话可说」的 turn 会被误报;对聊天形态的 agent 这是正确取舍(用户问了问题却没得到回答),对只靠副作用汇报的自主 worker,应把谓词放宽为「没有产生任何形式的输出」,而不是取消它。
 

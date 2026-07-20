@@ -8,8 +8,11 @@ incident, `0.144.6` is the build installed on 2026-07-19.
 This is **not** a controlled single-variable comparison across versions. The
 0.142.5 runs used a throwaway `CODEX_HOME` and `--ignore-user-config`; the
 0.144.6 runs did not. What each version's pair *does* support is a within-version
-comparison — rejection against control, same flags, same session — and that is
-all this corpus is used for.
+comparison: a rejection against an independent control invocation from the same
+CLI install and the same capture environment, configured identically apart from
+the deliberately varied model flag and prompt. That is all this corpus is used
+for. Every capture is a separate `codex exec` run — `--ephemeral` throughout, so
+no two of them share a session.
 
 | file | CLI | what it is | exit |
 |---|---|---|---|
