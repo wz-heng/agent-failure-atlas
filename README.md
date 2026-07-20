@@ -82,6 +82,8 @@ entries/<slug>/
   repro.py         minimal case with oracles — offline, <60s
   test_defense.py  regression tests for the defense
   evidence/        redacted captures + a provenance & redaction log
+  mutations.py     where an entry quotes mutation-testing numbers: generates
+                   them, and `--check`s that the entry still matches
 docs/              design notes
 ```
 

@@ -69,5 +69,6 @@ entries/<slug>/
   repro.py         带 oracle 的最小案例——离线,<60s
   test_defense.py  防御的回归测试
   evidence/        脱敏后的捕获样本 + 来源与脱敏说明
+  mutations.py     条目引用变异测试数字时:负责生成,并用 `--check` 断言正文未漂移
 docs/              设计短文
 ```
