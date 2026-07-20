@@ -216,14 +216,19 @@ def main() -> int:
     print("\nOracles")
 
     check(
-        "the marathon spends more than the watermarked run on identical work",
+        "the marathon spends more than the watermarked run on the same task sequence",
         marathon.cost > hygienic.cost,
         f"${marathon.cost:,.2f} vs ${hygienic.cost:,.2f} "
-        f"= {marathon.cost / hygienic.cost:.2f}x for the same {TASK_COUNT} tasks "
-        f"and identical {marathon.output_tokens:,} output tokens",
+        f"= {marathon.cost / hygienic.cost:.2f}x for the same {TASK_COUNT} synthetic "
+        f"tasks and the same {marathon.output_tokens:,}-token output budget",
     )
+    # Note the careful wording. The two arms spend an identical output-token
+    # BUDGET, because the simulation charges a fixed number of output tokens
+    # per synthetic task. No text is generated, so this is a token-accounting
+    # control against the guard "winning" by doing less -- not a claim that the
+    # two arms would produce equivalent work in reality.
     check(
-        "both runs produced exactly the same output — only context handling differs",
+        "both arms spend an identical output-token budget — only context handling differs",
         marathon.output_tokens == hygienic.output_tokens,
         f"{marathon.output_tokens:,} output tokens either way; the difference is "
         f"{marathon.cache_read_tokens + marathon.cache_write_tokens:,} vs "

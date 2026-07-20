@@ -217,8 +217,14 @@ def oracle_hot_reread(turns: list[dict]) -> None:
 # Oracle 3 — mode B, the wakeup tax
 # ===========================================================================
 def oracle_wakeup_tax(turns_b: list[dict], turns_c: list[dict]) -> None:
-    """Mode B: a session left idle past the cache TTL. The next turn rewrites
-    the whole context back into the cache, and cache writes bill at 2x input.
+    """Mode B: turns billed for rewriting their context back into the cache,
+    at the 2x write rate rather than the 0.1x read rate.
+
+    Read the assertions literally. They establish that the largest rewrite
+    FOLLOWED a long idle gap, was billed overwhelmingly for the rewrite, and
+    that a second session was billed its own rewrite moments later. They do
+    NOT establish that the idle gap CAUSED the rewrite — oracle 4 exists
+    specifically to show these traces cannot support that step.
     """
     print("\nOracle 3 — mode B, the cold rewrite (sessions B and C, 2026-07-15)")
 
@@ -252,21 +258,21 @@ def oracle_wakeup_tax(turns_b: list[dict], turns_c: list[dict]) -> None:
 
     median = statistics.median(t["cost"] for t in rows if t["cost"])
     check(
-        "the wakeup turn costs >10x the session's median turn",
+        "the rewrite turn was billed >10x the session's median turn",
         peak["cost"] / median > 10,
         f"${peak['cost']:.2f} vs median ${median:.2f} = {peak['cost'] / median:.1f}x",
     )
 
-    # One idle period, two sessions, two taxes. The tax is per-session, so it
-    # scales with how many marathon sessions you keep alive -- not with how
-    # much work you did.
+    # One idle period, two sessions, two rewrites. The rewrite is charged
+    # per session, so it scales with how many large sessions are alive -- not
+    # with how much work was done. (Co-occurrence, not causation: see oracle 4.)
     rows_c = billed(turns_c)
     sibling = min(
         rows_c, key=lambda t: abs((when(t) - when(peak)).total_seconds())
     )
     delta = abs((when(sibling) - when(peak)).total_seconds())
     check(
-        "a second session paid its own rewrite within 2 minutes of the first",
+        "a second session was billed its own rewrite within 2 minutes of the first",
         delta < 120 and sibling["cache_creation_tokens"] > 100_000,
         f"session C rewrote {sibling['cache_creation_tokens']:,} tokens for "
         f"${sibling['cost']:.4f}, {delta:.0f}s after session B's rewrite",
@@ -292,7 +298,7 @@ def oracle_ttl_is_not_a_predictor(traces: dict[str, list[dict]]) -> None:
     cache_creation_tokens as 0 on every turn, so including it would fabricate
     a population of long-gap turns that "prove" no rewrite ever happens.
     """
-    print("\nOracle 4 — idle time predicts rewrites in aggregate, but not per turn")
+    print("\nOracle 4 — the association is descriptive, and it is not per-turn")
 
     long_gap: list[float] = []
     short_gap: list[float] = []
@@ -310,7 +316,7 @@ def oracle_ttl_is_not_a_predictor(traces: dict[str, list[dict]]) -> None:
     median_short = statistics.median(short_gap)
 
     check(
-        "after a >1h gap, the median turn rewrites a far larger share of context",
+        "pooled: the median >1h-gap turn rewrites a far larger share of context",
         median_long > median_short * 5,
         f"median rewrite share {median_long:.1%} (n={len(long_gap)}) after a long gap "
         f"vs {median_short:.1%} (n={len(short_gap)}) after a short one "
@@ -341,6 +347,9 @@ def main() -> int:
         "A": load("hot_reread_A.jsonl"),
         "B": load("cold_rewrite_B.jsonl"),
         "C": load("cold_rewrite_C.jsonl"),
+        # A real codex session, included so oracle 4's exclusion has something
+        # to exclude. Its every turn reports cache_creation_tokens as 0.
+        "D": load("codex_no_cache_field_D.jsonl"),
     }
     every_turn = [t for turns in traces.values() for t in turns]
 

@@ -37,7 +37,12 @@ from simulate import (
     should_retire_session,
 )
 
-EVIDENCE = Path(__file__).resolve().parent / "evidence"
+HERE = Path(__file__).resolve().parent
+EVIDENCE = HERE / "evidence"
+
+CLAUDE_TRACES = ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl", "cold_rewrite_C.jsonl")
+CODEX_TRACE = "codex_no_cache_field_D.jsonl"
+ALL_TRACES = CLAUDE_TRACES + (CODEX_TRACE,)
 
 # Exactly the keys `export_traces.py` emits. A record carrying anything else
 # means the redaction transform changed and the entry's redaction claim in
@@ -92,9 +97,15 @@ def test_defense_reduces_spend_on_identical_work() -> None:
     assert guarded_peak < marathon_peak                # and it capped the context
 
 
-def test_defense_does_not_change_what_was_produced() -> None:
-    """The guard must not be able to look good by doing less work. Output
-    tokens are identical across both arms; only context handling differs."""
+def test_defense_spends_the_same_output_budget_in_both_arms() -> None:
+    """The guard must not be able to look good by simply doing less.
+
+    Note what this does and does not say: both arms spend an identical
+    *output-token budget*, because the simulation charges a fixed number of
+    output tokens per synthetic task. No text is generated and no semantic
+    equivalence is demonstrated — this is a token-accounting control, not a
+    claim that the two arms would produce the same work in reality.
+    """
     marathon, _, _ = run_session_strategy(None)
     guarded, _, _ = run_session_strategy(int(CONTEXT_WINDOW * 0.50))
     assert marathon.output_tokens == guarded.output_tokens
@@ -127,12 +138,40 @@ def test_simulation_is_deterministic() -> None:
 # The traces — pinning the entry's prose
 # ===========================================================================
 def test_trace_records_carry_no_content_and_no_identifiers() -> None:
-    for name in ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl", "cold_rewrite_C.jsonl"):
-        raw = (EVIDENCE / name).read_text()
-        assert "/Users/" not in raw and "/tmp/" not in raw, name
+    for name in ALL_TRACES:
         for record in load(name):
             assert set(record) == EXPECTED_KEYS, (name, set(record) ^ EXPECTED_KEYS)
             assert record["session"].startswith("session-"), name
+
+
+def test_no_identifier_leaks_anywhere_in_the_entry() -> None:
+    """Scans EVERY committed file in this entry, not just the traces.
+
+    An earlier revision scanned only `*.jsonl` — and the redaction script
+    itself, `evidence/export_traces.py`, had the three real session ids
+    hardcoded in a module-level table. The script that removes the identifiers
+    published them. A reviewer found it; this test is why it cannot recur.
+
+    The check is structural rather than a denylist of the (now removed) ids:
+    a bare 12-hex-digit token is the shape of an Owlery session id, and none
+    should appear anywhere in the entry.
+    """
+    import re
+    hexish = re.compile(r"\b[0-9a-f]{12}\b")
+    # A real home path is "/Users/" followed by a username. The literal token
+    # "/Users/" also appears in this file and in evidence/README.md as part of
+    # the documented grep, so match the shape of an actual path, not the token.
+    homepath = re.compile(r"/(?:Users|home)/\w")
+    for path in sorted(HERE.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        if path.suffix not in {".py", ".jsonl", ".md", ".txt", ""}:
+            continue
+        text = path.read_text(errors="ignore")
+        rel = path.relative_to(HERE)
+        assert not homepath.search(text), f"{rel} contains an absolute home path"
+        found = hexish.findall(text)
+        assert not found, f"{rel} contains session-id-shaped tokens: {found[:3]}"
 
 
 def test_trace_session_a_totals_match_the_entry() -> None:
@@ -190,23 +229,42 @@ def test_trace_the_five_day_cache_write_line_dominates_session_b() -> None:
     assert totals["cache_write"] > totals["cache_read"] > totals["output"]
 
 
-def test_trace_codex_turns_never_report_cache_creation() -> None:
-    """The confound oracle 4 controls for. Every codex-backend turn reports
-    cache_creation_tokens as 0 — not because nothing was written, but because
-    that backend does not report the field. Counting them would manufacture
-    long-gap turns that appear to rewrite nothing."""
-    codex = [r for name in ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl",
-                            "cold_rewrite_C.jsonl")
-             for r in load(name) if r["backend"] == "codex"]
+def test_trace_the_codex_exclusion_is_not_vacuous() -> None:
+    """The confound oracle 4 controls for — asserted so it cannot pass on
+    nothing.
+
+    An earlier revision ran `all(r[...] == 0 for r in codex)` over a list that
+    was ALWAYS EMPTY: every committed trace was claude-code, so the assertion
+    was vacuously true and the entry's claim about codex rested on no evidence
+    at all. A reviewer caught it. The fix is both halves: commit a real codex
+    trace, and assert it is non-empty BEFORE asserting the property.
+    """
+    codex = [r for r in load(CODEX_TRACE) if r["backend"] == "codex"]
+    assert len(codex) == 6, "the codex trace must actually contain codex turns"
     assert all(r["cache_creation_tokens"] == 0 for r in codex)
+    # And the confound is live: a long gap followed by an apparent zero rewrite.
+    gaps = [(datetime.fromisoformat(b["created_at"])
+             - datetime.fromisoformat(a["created_at"])).total_seconds()
+            for a, b in zip(codex, codex[1:])]
+    assert max(gaps) > 3600, "no long gap in the codex trace to be fooled by"
+
+
+def test_claims_checker_agrees_with_traces_and_prose() -> None:
+    """`claims.py --check` recomputes every figure the entry quotes from the
+    traces AND asserts the literal still appears in README.md. Running it here
+    means the ordinary test command catches prose drift too."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, str(HERE / "claims.py"), "--check"],
+        capture_output=True, text=True, cwd=HERE)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_trace_only_the_1h_rate_reconciles() -> None:
     """The finding that identifies the TTL from billing. Pinned here as well
     as in repro.py, because it is the load-bearing premise of every dollar
     figure in the entry."""
-    rows = [r for name in ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl",
-                           "cold_rewrite_C.jsonl") for r in load(name)]
+    rows = [r for name in ALL_TRACES for r in load(name)]
     def matches(multiplier: float) -> int:
         hits = 0
         for row in rows:
@@ -223,8 +281,7 @@ def test_trace_only_the_1h_rate_reconciles() -> None:
 def test_trace_unreconciled_turn_count_is_what_the_entry_says() -> None:
     """§3 says four turns in these traces do not reconcile. If that number
     changes, §3 is wrong and this goes red."""
-    rows = [r for name in ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl",
-                           "cold_rewrite_C.jsonl") for r in load(name)]
+    rows = [r for name in ALL_TRACES for r in load(name)]
     unreconciled = []
     for row in rows:
         if not row["cost"]:
@@ -247,7 +304,7 @@ def test_trace_price_table_covers_every_model_in_the_corpus() -> None:
     """If a trace ever carries a model the price table lacks, cost_parts()
     returns None and that turn silently vanishes from every aggregate. Fail
     loudly instead."""
-    for name in ("hot_reread_A.jsonl", "cold_rewrite_B.jsonl", "cold_rewrite_C.jsonl"):
+    for name in ALL_TRACES:
         for row in load(name):
             if row["backend"] == "codex":
                 continue                    # priced by a different vendor
