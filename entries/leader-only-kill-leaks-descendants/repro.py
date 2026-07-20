@@ -69,39 +69,61 @@ class ReproError(RuntimeError):
 # Process-group registry — this script's own defense against this script
 # --------------------------------------------------------------------------
 
-_ACTIVE_PGIDS: set[int] = set()
+# pgid -> the leader Popen that leads it. The Popen is kept, not just the pid,
+# because reaping has to be done PER CHILD and definitively. An earlier version
+# registered pgids only and reaped with `waitpid(-1, WNOHANG)` in a loop that
+# broke as soon as it returned 0 — which is exactly what it returns when a child
+# exists but has not been collected yet. Right after SIGKILL that is the common
+# case, so the leader was left in Z on 30 out of 30 runs. It looked clean from
+# outside only because those zombies were re-parented and reaped when the main
+# process exited: the very "let process exit clean it up" habit this entry
+# criticises.
+_ACTIVE_JOBS: dict[int, subprocess.Popen] = {}
 
 
-def _register_pgid(pgid: int) -> None:
-    _ACTIVE_PGIDS.add(pgid)
+def _register_job(pgid: int, proc: subprocess.Popen) -> None:
+    _ACTIVE_JOBS[pgid] = proc
+
+
+def group_is_alive(pgid: int) -> bool:
+    """Does this process group still have members? Signal 0 probes without
+    delivering anything."""
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def reap_leader(proc: subprocess.Popen, timeout: float = 5.0) -> bool:
+    """Collect a leader definitively. `Popen.wait` blocks until the child is
+    actually reaped and only ever waits on ITS OWN pid, so it cannot swallow
+    another child's exit status the way `waitpid(-1, ...)` can."""
+    try:
+        proc.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def sweep_active_pgids() -> list[int]:
-    """SIGKILL every process group we started, then reap. Returns the pgids
-    that still had live members — i.e. what would have leaked."""
-    leaked = []
-    for pgid in sorted(_ACTIVE_PGIDS):
-        try:
-            os.killpg(pgid, 0)          # probe: does the group still exist?
-        except (ProcessLookupError, PermissionError):
-            continue
-        leaked.append(pgid)
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-    _ACTIVE_PGIDS.clear()
+    """SIGKILL every process group we started, then REALLY reap each leader.
 
-    # Reap whatever we can, so we do not leave zombies of our own either.
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        try:
-            pid, _ = os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            break
-        if pid == 0:
-            break
-        time.sleep(0.01)
+    Returns the pgids that still had live members — i.e. what would have leaked.
+    Grandchildren are not our children, so we cannot `wait` on them; killing the
+    group is what ends them, and their reaping belongs to whoever adopted them.
+    The leaders ARE ours, and this collects every one.
+    """
+    leaked = []
+    for pgid, proc in sorted(_ACTIVE_JOBS.items()):
+        if group_is_alive(pgid):
+            leaked.append(pgid)
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        reap_leader(proc)
+    _ACTIVE_JOBS.clear()
     return leaked
 
 
@@ -242,26 +264,24 @@ def start_job(tmpdir: str) -> tuple[subprocess.Popen, int, int, int]:
         pgid = os.getpgid(leader.pid)
     except (ProcessLookupError, PermissionError):
         pgid = leader.pid
-    _register_pgid(pgid)
+    _register_job(pgid, leader)
 
     port, holder_pid = read_published(port_file, leader, STARTUP_TIMEOUT)
     return leader, leader.pid, port, holder_pid
 
 
-def kill_and_reap_group(pgid: int) -> None:
+def kill_and_reap_group(pgid: int, proc: subprocess.Popen | None = None) -> None:
+    """SIGKILL a group and collect its leader. Pass the leader's Popen so the
+    reap is real — see the note on `_ACTIVE_JOBS` for why a bare
+    `waitpid(-1, WNOHANG)` loop is not a reap."""
     try:
         os.killpg(pgid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        try:
-            pid, _ = os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if pid == 0:
-            return
-        time.sleep(0.01)
+    if proc is None:
+        proc = _ACTIVE_JOBS.get(pgid)
+    if proc is not None:
+        reap_leader(proc)
 
 
 # --------------------------------------------------------------------------
@@ -313,7 +333,7 @@ def oracle_leader_only_kill_leaks_and_blocks(tmpdir: str) -> list[str]:
         print("      -> deterministic, not flaky: the resource has an owner, and")
         print("         that owner is no longer anybody's child.")
 
-    kill_and_reap_group(pgid)
+    kill_and_reap_group(pgid, leader)
     if not wait_for_port_free(port, 5.0):
         failures.append("could not clean up the leaked holder")
     return failures
@@ -332,7 +352,7 @@ def oracle_group_kill_releases(tmpdir: str) -> list[str]:
         return ["setup failed: the holder never actually held the port"]
 
     # THE FIX: address the whole group, then reap it.
-    kill_and_reap_group(pgid)
+    kill_and_reap_group(pgid, leader)
 
     released = wait_for_port_free(port, 5.0)
     holder_stat = ps_field(holder_pid, "stat") or "gone"
@@ -416,7 +436,7 @@ def oracle_orphan_is_not_a_zombie(tmpdir: str) -> list[str]:
         print("         can wedge the next run; chasing Z states is chasing the")
         print("         wrong bug.")
 
-    kill_and_reap_group(pgid)
+    kill_and_reap_group(pgid, leader)
     zombie.wait()
     if not wait_for_port_free(orphan_port, 5.0):
         failures.append("could not clean up the orphan")

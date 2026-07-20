@@ -50,9 +50,10 @@ MCP server, a database handle, a subagent. When the supervisor tears the job
 down, it signals **the process it has a handle on**: the direct child.
 
 That kills the leader and nothing else. The grandchildren are not signalled,
-are reparented to `init`/`launchd`, and keep running — still holding whatever
-they held. They are now owned by nobody, referenced by nothing, and invisible
-to every tool the supervisor has.
+are reparented to whatever adopts orphans on that system — usually PID 1, but a
+subreaper or PID namespace may take them instead — and keep running, still
+holding whatever they held. They are now owned by nobody the supervisor knows
+about, referenced by nothing, and invisible to every tool it has.
 
 The next run then contends with a process that no longer appears in any process
 tree anyone is looking at. `repro.py` demonstrates exactly this, live.
@@ -100,7 +101,7 @@ wrong sends you hunting the wrong thing entirely:
 | | orphan | zombie |
 |---|---|---|
 | `ps` state | `S` / `R` — **alive** | `Z` — **exited** |
-| parent | reparented to `init`/`launchd` (`ppid 1`) | still its original parent, until reaped |
+| parent | reparented to an adopter — often PID 1 (`init`/`launchd`), possibly a subreaper | still its original parent, until reaped |
 | holds ports, locks, memory? | **yes** | **no** — the kernel released everything at exit *(measured: oracle 3 binds a port in the zombie, then rebinds it while the zombie is still in `Z`)* |
 | can it wedge your next run? | **yes** | **no** |
 | how it's fixed | signal the process **group** | the parent calls `wait()` |
@@ -198,13 +199,30 @@ Three machine-checked oracles:
    is in `Z`, still our child, and that **its port rebinds immediately**.
 
 **On this script's own hygiene.** Every process group it starts is registered
-the moment it exists, and a `finally` sweep kills and reaps all of them — on
-success, on oracle failure, on an unexpected exception, on Ctrl-C, and on
-`SIGTERM`/`SIGHUP` (which are trapped, because the default disposition dies
-without running `finally`). The first revision did not do this: its error paths
-returned early past their own cleanup, so a crashed run would have handed the
-reader a sleeping orphan holding a port — the exact bug this entry documents.
-That is a good argument for the sweep and a poor one for the author.
+the moment it exists — together with its leader's `Popen` — and a `finally`
+sweep kills each group and reaps each leader, on success, on oracle failure, on
+an unexpected exception, on Ctrl-C, and on `SIGTERM`/`SIGHUP` (trapped, because
+the default disposition dies without running `finally`).
+
+It took two review rounds to get that right, and both failures were instances of
+the bug this entry is about:
+
+- The first revision's error paths **returned early past their own cleanup**, so
+  a crashed run would have handed the reader a sleeping orphan holding a port.
+- The second revision's "reap" was `waitpid(-1, WNOHANG)` in a loop that stopped
+  the moment it returned `0` — which is precisely what it returns when a child
+  exists but has not been collected yet, the normal state right after `SIGKILL`.
+  Every leader was left in `Z`. **30 out of 30** start→sweep cycles in one
+  process left an unreaped leader. It looked clean from outside only because
+  those zombies were re-parented and reaped when the whole process exited —
+  the "process exit will clean it up" habit this entry argues against, masking
+  the leak. Reaping is now per-leader `Popen.wait()`, which waits on its own pid
+  and cannot swallow another child's status, and
+  `test_the_sweep_reaps_every_leader_over_many_cycles` runs those 30 cycles
+  every build.
+
+Neither is a flattering story. Both are better in the entry than in the reader's
+process table.
 
 Regression tests for the defense:
 
@@ -212,11 +230,13 @@ Regression tests for the defense:
 python3 test_defense.py            # or: python3 -m pytest test_defense.py -q
 ```
 
-9 tests, ~2s, each wrapped in the same sweep: the bug pinned, the fix,
+10 tests, ~5s, each wrapped in the same sweep: the bug pinned, the fix,
 run-teardown-run, teardown idempotency on an already-dead job, no zombie left by
 the supervisor itself, a zombie measurably releasing its port at exit, orphan
 and zombie contrasted on the only axis that matters, the repro's own sweep
-reclaiming an abandoned group, and a guard that the blocking demo stays bounded.
+reclaiming an abandoned group *and reaping its leader*, 30 start→sweep cycles in
+one process asserting no leader survives as a process-table entry, and a guard
+that the blocking demo stays bounded.
 
 ## 5. Discrimination and defense
 

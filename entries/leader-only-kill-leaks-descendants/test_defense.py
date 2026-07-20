@@ -71,9 +71,7 @@ def supervise_teardown(leader: subprocess.Popen, *, group: bool) -> None:
         leader.kill()
         leader.wait()
         return
-    kill_and_reap_group(pgid)
-    if leader.poll() is None:
-        leader.wait()
+    kill_and_reap_group(pgid, leader)
 
 
 # ------------------------------------------------------------------- the tests
@@ -209,16 +207,48 @@ def test_an_orphan_and_a_zombie_differ_on_the_thing_that_matters():
 
 def test_the_repro_sweeps_its_own_process_groups_on_failure():
     """The script that demonstrates leaks must not leak. Start a job, abandon
-    it without tearing it down, and confirm the sweep reclaims it."""
+    it without tearing it down, and confirm the sweep reclaims it — the group,
+    the resource, AND the leader's process-table entry."""
     if not POSIX:
         return
     with tempfile.TemporaryDirectory() as tmpdir:
-        _leader, _pid, port, holder_pid = start_job(tmpdir)
+        _leader, leader_pid, port, holder_pid = start_job(tmpdir)
         assert not port_is_free(port), "setup failed"
         leaked = sweep_active_pgids()          # what `finally` would run
         assert leaked, "the sweep did not report the live group"
         assert wait_for_port_free(port, 5.0), "the sweep did not free the port"
         assert not is_live_state(ps_field(holder_pid, "stat"))
+        # The leader must be GONE, not merely dead: a Z entry means the sweep
+        # signalled without reaping.
+        assert not ps_field(leader_pid, "stat"), "the leader was left unreaped"
+
+
+def test_the_sweep_reaps_every_leader_over_many_cycles():
+    """Repeated start -> sweep in ONE process, because that is what exposed the
+    original bug and a single cycle does not.
+
+    The first version of the sweep used `waitpid(-1, WNOHANG)` and stopped the
+    moment it returned 0 — which is what it returns when a child exists but has
+    not been collected yet, the normal state right after SIGKILL. Every leader
+    was therefore left in Z. Nothing showed up in `ps` from outside only because
+    the zombies were re-parented and reaped when the whole process exited, i.e.
+    the leak was masked by exactly the "process exit will clean it up" habit
+    this entry argues against. Looping inside one process removes that mask.
+    """
+    if not POSIX:
+        return
+    cycles = 30
+    unreaped = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for _ in range(cycles):
+            _leader, leader_pid, _port, _holder = start_job(tmpdir)
+            sweep_active_pgids()
+            if ps_field(leader_pid, "stat"):
+                unreaped.append((leader_pid, ps_field(leader_pid, "stat")))
+    assert not unreaped, (
+        f"{len(unreaped)}/{cycles} leaders survived the sweep as process-table "
+        f"entries: {unreaped[:5]}"
+    )
 
 
 def test_block_timeout_is_short_enough_to_stay_a_test():
