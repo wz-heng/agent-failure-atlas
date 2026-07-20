@@ -28,7 +28,7 @@ is a checkable fact.
 
 | # | Failure mode | Symptom | Evidence | Impact | Fix |
 |---|---|---|---|---|---|
-| 1 | [A string classifier falsified by real samples: usage-limit detection](entries/string-classifier-falsified-by-real-samples/) | A quota-exhausted turn and a server-side throttle arrive as the same HTTP 429 with overlapping prose, but need opposite handling | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | Sessions die unattended for hours — or suspend for hours on a blip that clears in seconds | Key on whether the CLI *names the exhausted window* (`rateLimitType` + `resetsAt`), never on rendered prose |
+| 1 | [A usage-limit classifier falsified by real samples](entries/string-classifier-falsified-by-real-samples/) | A quota-exhausted turn and a server-side throttle arrive as the same HTTP 429, and the throttle's prose carries *more* rate-limit vocabulary than the real limit's | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | Sessions die unattended for hours — or suspend for hours on a blip that clears in seconds | Per backend: Claude keys on a structured field (`rateLimitType` + `resetsAt`); Codex has no such field, so it keys on a string marker fixed by captured traces of *both* classes, and reads its epoch structurally out of band |
 
 More entries land as their evidence matures — one at a time, not as a batch.
 
