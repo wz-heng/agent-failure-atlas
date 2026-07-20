@@ -9,6 +9,13 @@ Every entry answers five questions: what broke, what the real mechanism was
 claim and how strong it is, how to reproduce it, and how to detect and defend
 against it in production.
 
+**Where these come from.** Building and running **Owlery**, a personal agent
+platform (FastAPI + React) that drives the Claude Code and Codex CLIs as
+long-lived agent sessions — scheduled runs, agent-to-agent delegation,
+messaging bridges. Owlery's own repository is private; each entry carries the
+evidence out of it in redacted, self-contained form, so nothing here depends on
+access to it.
+
 **Why this exists.** As models get stronger, "did it actually do the right
 thing?" gets *harder* to eyeball, not easier. Knowledge about how these systems
 fail appreciates as capability grows — a patch is a consumable, a documented
@@ -44,8 +51,8 @@ and it is deliberately conservative.
   seconds.** No entry requires a vendor account or spends API budget.
 - **Every case has a machine-checked oracle** — an assertion that passes or
   fails, not a wall of output for you to squint at.
-- **No entry imports the system it came from.** Cases are self-contained
-  reimplementations, so they stay runnable and readable in isolation.
+- **No entry imports Owlery.** Cases are self-contained reimplementations of the
+  logic that shipped there, so they stay runnable and readable in isolation.
 - **Nothing is hand-written to fit the conclusion.** Where a fake process
   replays a stream, it replays a *captured real* stream; it never performs a
   scripted puppet show that confirms the thesis.

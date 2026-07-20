@@ -7,6 +7,7 @@
 
 | | |
 |---|---|
+| **Hit in** | Owlery — a personal agent platform driving the Claude Code and Codex CLIs (private repository) |
 | **Systems** | Claude Code CLI `2.1.209`, Codex CLI `0.142.5` |
 | **Platform** | macOS 15 (darwin 25.x), Python 3.12 |
 | **Samples captured** | 2026-07-14 |
@@ -148,7 +149,7 @@ python3 repro.py        # exit 0 = every oracle held
 ```
 
 Offline, no account, no network, no API spend, well under a second. Standard
-library only; imports nothing from the system it came from — both classifiers
+library only; imports nothing from Owlery — both classifiers
 are reimplemented in the file from the shipped logic.
 
 Three machine-checked oracles:
@@ -201,7 +202,7 @@ strings" — it is:
 > every class you are separating — especially the class you expect *not* to
 > match.**
 
-Three defenses follow from that, all of them in the shipped fix:
+Three defenses follow from that, all of them in the fix that shipped in Owlery:
 
 1. **Key on fields the vendor emits for machines, not strings it renders for
    humans.** The reset time comes from the `resetsAt` epoch, never parsed back
@@ -210,7 +211,7 @@ Three defenses follow from that, all of them in the shipped fix:
 2. **Keep the classifier pure and stream-only.** Detection reads the turn's
    events and nothing else — no disk, no config. That is what makes the
    disjointness provable on captured fixtures alone, with no hidden state. In
-   the shipped fix, the one classifier that needed I/O (codex reads its reset
+   Owlery's fix, the one classifier that needed I/O (codex reads its reset
    epoch from a rollout file) was split into a separate hook that may only
    *supply a missing epoch* — it can never revisit the verdict.
 3. **Pin the negative samples in regression tests.** The throttle samples are as
