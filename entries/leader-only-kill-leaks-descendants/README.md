@@ -227,7 +227,8 @@ process table.
 Regression tests for the defense:
 
 ```bash
-python3 test_defense.py            # or: python3 -m pytest test_defense.py -q
+python3 test_defense.py            # or, if pytest is installed:
+python3 -m pytest test_defense.py -q
 ```
 
 10 tests, ~5s, each wrapped in the same sweep: the bug pinned, the fix,

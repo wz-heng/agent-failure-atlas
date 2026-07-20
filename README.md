@@ -29,8 +29,8 @@ is a checkable fact.
 | # | Failure mode | Symptom | Evidence | Impact | Fix |
 |---|---|---|---|---|---|
 | 1 | [A usage-limit classifier falsified by real samples](entries/string-classifier-falsified-by-real-samples/) | For Claude, a quota-exhausted turn and a server-side throttle both arrive as HTTP 429, and the throttle's prose carries *more* rate-limit vocabulary than the real limit's; for Codex, the real usage limit carries no 429 at all | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | Sessions die unattended for hours — or suspend for hours on a blip that clears in seconds | Per backend: Claude keys on a structured field (`rateLimitType` + `resetsAt`); Codex has no such field, so it keys on a string marker fixed by captured traces of *both* classes, and reads its epoch structurally out of band |
-
 | 2 | [Killing only the process-group leader leaks descendants that block the next run](entries/leader-only-kill-leaks-descendants/) | Tests hang at a stable percentage and delegations fail repeatedly, because a process nobody can see already owns what they need | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | Hours lost to misdiagnosis — the symptom surfaces in code that is not at fault, and any A/B test run under contention is a coin flip | Spawn with `start_new_session=True`; on teardown signal the process **group**, then reap — both halves, or you trade an orphan for a zombie |
+| 3 | [The silent empty turn: a model name that belonged to the other backend](entries/silent-empty-turn-cross-backend-model-mismatch/) | The agent goes "read but no reply" — the turn ends, the CLI exits 0, the stream ends in success, and there is simply no answer in it | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | Two unrelated upstream rejections over six days wore one indistinguishable face — as did the failed upgrade that let the second persist — and the natural first hypothesis, "the model chose not to answer", is plausible and wrong | Assert on what a success *produced*: a terminal success carrying no assistant output is an error. Plus a pre-spawn check that the model name belongs to the backend that will run it — and `which -a`, never `which` |
 
 More entries land as their evidence matures — one at a time, not as a batch.
 
@@ -82,6 +82,8 @@ entries/<slug>/
   repro.py         minimal case with oracles — offline, <60s
   test_defense.py  regression tests for the defense
   evidence/        redacted captures + a provenance & redaction log
+  mutations.py     where an entry quotes mutation-testing numbers: generates
+                   them, and `--check`s that the entry still matches
 docs/              design notes
 ```
 
