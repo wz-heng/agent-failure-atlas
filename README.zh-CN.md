@@ -25,8 +25,8 @@
 | # | 失效模式 | 现象 | 证据等级 | 影响 | 修复 |
 |---|---|---|---|---|---|
 | 1 | [限额判别被真实样本证伪](entries/string-classifier-falsified-by-real-samples/) | Claude 侧配额耗尽与服务端限流均为 HTTP 429,且限流那条的限额词汇比真实限额还多;Codex 侧真实限额流中则完全没有 429 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 会话无人值守地死上数小时;或因两秒的抖动空挂五小时 | 分后端:Claude 用结构字段(`rateLimitType` + `resetsAt`);Codex 无此字段,改用经正负两类真实 trace 固定的字符串 marker,纪元则从 rollout 按结构读取 |
-
 | 2 | [只杀进程组 leader 会泄漏后代并阻塞后续任务](entries/leader-only-kill-leaks-descendants/) | 测试稳定卡在同一百分比、委派反复失败——因为一个谁也看不见的进程已经占住了它们要用的资源 | ![live reproduction](https://img.shields.io/badge/evidence-live%20reproduction-brightgreen) | 大量时间浪费在误诊上:症状出现在无辜的代码里,而争用状态下做的任何 A/B 实验都只是抛硬币 | 用 `start_new_session=True` 生成;teardown 时对**进程组**发信号并 reap——两半都要,否则只是把孤儿换成僵尸 |
+| 3 | [静默的空 turn:一个属于另一个后端的模型名](entries/silent-empty-turn-cross-backend-model-mismatch/) | agent「已读不回」——turn 正常结束、CLI 退出码 0、事件流以成功收尾,里面就是没有回答 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 六天里三个互不相干的上游故障长着同一张脸,而最自然的第一假设「模型自己选择不回答」既合理又错误 | 对成功**产出了什么**做断言:终态成功却没有任何助手输出即判为错误。外加一道 spawn 前校验(模型名是否属于将要运行它的后端),以及诊断第一条命令用 `which -a` 而非 `which` |
 
 后续条目在各自证据成熟后逐条发布,不攒批。
 
