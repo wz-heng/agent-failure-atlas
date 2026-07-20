@@ -22,7 +22,8 @@
 
 ## 1. Symptom
 
-You send your agent a message. The turn runs for 11 to 30 seconds. Then it
+You send your agent a message. The turn runs for a while — `[operator
+testimony]` 11 to 30 seconds, from the notes; no capture survives. Then it
 finishes, and nothing comes back.
 
 Not an error. Not an empty bubble. Not a spinner that never resolves. The
@@ -89,10 +90,12 @@ too old for the model being requested. Same 0-token empty turn, same silence.
 
 That is the generalization, and it is worth more than either individual bug:
 
-> **Every server-side rejection Owlery could not render wore the same face.**
-> The failure mode is not "a bad model name". It is that a class of upstream
-> refusal reached the user as an *absence*, and absences are indistinguishable
-> from each other.
+> **Both server-side rejections I hit wore the same face — and the mechanism
+> predicts any other would too.** The failure mode is not "a bad model name".
+> It is that a class of upstream refusal reached the user as an *absence*, and
+> absences are indistinguishable from each other. Two samples do not make that
+> universal; the consumer-side mechanism in §5, which does not inspect the
+> cause at all, is the reason to expect it to generalize.
 
 ### Ring 3 (2026-07-19) — the upgrade that did not take
 
@@ -105,15 +108,26 @@ symlink to the older build. `which codex` — singular — showed one path and t
 you nothing was wrong with it.
 
 This ring has the only surviving physical evidence of the whole episode, and it
-is a filesystem timestamp:
+is a pair of filesystem timestamps:
 
 ```
 /opt/homebrew/lib/node_modules/@openai/codex/package.json   2026-07-19 10:18:13
-~/.local/bin/codex -> /opt/homebrew/bin/codex               2026-07-19 10:37:04
+~/.local/bin/codex                                          2026-07-19 10:37:04
 ```
 
-The upgrade at 10:18; the symlink repointed at it 19 minutes later. Those 19
-minutes are ring 3.
+The upgrade landed at 10:18; the shadowing symlink was rewritten 19 minutes
+later. Those 19 minutes are ring 3.
+
+**What these timestamps do not establish.** They record *that* the symlink was
+rewritten at 10:37, not what it pointed at before. Its pre-fix target is
+unrecorded — nothing resembling an older install survives anywhere on the
+machine today — so the shadowing mechanism as described (`~/.local/bin` ahead of
+`/opt/homebrew/bin` on `PATH`, resolving to a stale build) rests on the
+operator's notes, with the timestamps corroborating only the timing. It is worth
+naming the gap because the obvious alternative would not have produced the
+symptom: had the symlink already pointed at `/opt/homebrew/bin/codex`, an
+in-place `npm install -g` there would have been picked up automatically and
+there would have been no ring 3 at all.
 
 > `which -a` — not `which` — is the first command of this diagnosis, and it
 > should have been the first command of the previous ring too.
@@ -171,10 +185,18 @@ today.
 
 Two consequences, both stated plainly rather than smoothed over:
 
-- **The silence was server-side, not a CLI bug.** The old binary is loud today.
-  Whatever produced a null message with no error on 2026-07-13 changed at the
-  service, not in the client — which also means the ring-3 upgrade, on its own,
-  was not what fixed it.
+- **The silent shape is not reproducible from the incident's configuration on
+  either build today — and where the difference lives is undetermined.** It is
+  consistent with a server-side change, and that is the reading I find most
+  likely, since the incident's own binary is loud today. But these captures
+  cannot exclude the alternatives: today's `0.142.5` run used a throwaway
+  `CODEX_HOME` and `--ignore-user-config`, so the *client* configuration also
+  differs from the incident's; account or plan state may have changed; and the
+  notes' "zero error events" may have meant "nothing surfaced in Owlery",
+  which is precisely what this entry shows the consumer does to a record it
+  cannot render. Undetermined also means this entry **cannot say what the
+  ring-3 upgrade did or did not fix.** Naming a cause here would be exactly the
+  "correlation written up as cause" the repo forbids.
 - **This entry cannot and does not claim a live reproduction of the incident.**
   `repro.py` oracle 2 asserts that today's rejection is *loud*, on purpose, so
   the entry cannot quietly regrow a claim its artifacts do not support. An oracle
@@ -196,9 +218,10 @@ Reported as recollection, not measurement.
 
 What is independently checkable:
 
-- **The 07-19 remediation**, from filesystem mtimes: the 0.144.6 install at
-  10:18:13 and the `~/.local/bin/codex` symlink repointed at it at 10:37:04.
-  This corroborates the dual-install story and its timing.
+- **The timing of the 07-19 remediation**, from filesystem mtimes: the 0.144.6
+  install at 10:18:13 and the `~/.local/bin/codex` symlink rewritten at
+  10:37:04. This corroborates *when* something was fixed, not the shadowing
+  mechanism — the symlink's pre-fix target is unrecorded. See the caveat in §2.
 - **Both defects in the consumer**, which are not testimony at all — they are
   readable in Owlery's source as it stands on 2026-07-20, and are quoted in
   [§5](#5-discrimination-and-defense).
@@ -234,14 +257,20 @@ Five machine-checked oracles:
    surfaced, exit 0 — all four asserted exactly. That conjunction *is* the bug;
    any one of them being non-empty would have made it diagnosable.
 2. **Today's rejection is loud — on both CLI versions.** Asserts verdict
-   `failed`, exit 1, and the 400 text reaching the user, for `0.142.5` and
-   `0.144.6` alike. This oracle exists to keep the entry honest about the
-   reproduction it does **not** have.
-3. **The CLI's own warning is dropped.** In the rejected stream the very first
-   record after `thread.started` is an item saying ``Model metadata for
-   `Claude-opus-4-8` not found``. The parser has no branch for that item type,
-   so it returns `[]` and the warning is discarded. Asserted both ways: the
-   record is present in the stream, and absent from what the user is shown.
+   `failed`, exit 1, and the 400 text reaching the user **twice**, for `0.142.5`
+   and `0.144.6` alike. Twice, because the stream carries it as a standalone
+   `error` record *and* inside `turn.failed`, and those are two independent
+   consumer branches: with a membership check instead of a count, either branch
+   could be deleted with every oracle still green. Review found that by
+   mutation; the count closed it. This oracle also exists to keep the entry
+   honest about the reproduction it does **not** have.
+3. **The CLI's own warning is dropped, unlogged.** In the rejected stream the
+   very first record after `thread.started` is an item saying ``Model metadata
+   for `Claude-opus-4-8` not found``. The parser has no branch for that item
+   type, so it returns `[]`. Asserted three ways: the record is present in the
+   stream, absent from what the user is shown, and absent from the debug log
+   too — unlike an unmodelled *top-level* event, an unmodelled *item* leaves no
+   trace at all.
 4. **The defense.** The guarded policy fails the zero-content turn with an
    explicit message, leaves *both* control turns green and their text intact,
    leaves the already-loud rejection classified exactly as before, and surfaces
@@ -257,19 +286,43 @@ Regression tests for the defense:
 python3 test_defense.py            # or: python3 -m pytest test_defense.py -q
 ```
 
-17 tests, ~1.4s. The bug pinned; the fix; no false positive on either control;
-the loud path unchanged; the dropped warning in both versions; three shapes the
-corpus does not contain (whitespace-only text, an `agent_message` with no `text`
-field, a turn with no message item at all — labelled synthetic in the file, and
-never cited as evidence about the vendor); the attribution check in both
-directions plus its deliberate pass-through; and two tests that assert the
-*evidence files themselves* still say what §3 claims, so the prose cannot drift
-away from the traces.
+20 tests, ~1.2s. The bug pinned; the empty message asserted to produce *no event
+at all* rather than a suppressed one; the fix; no false positive on either
+control; the loud path unchanged and both of its error branches firing; the
+dropped warning in both versions, and staying a warning rather than becoming an
+error; three shapes the corpus does not contain (whitespace-only text, an
+`agent_message` with no `text` field, a turn with no message item at all —
+labelled synthetic in the file, and never cited as evidence about the vendor);
+the attribution check in both directions plus its deliberate pass-through; and
+four tests that assert the *evidence files themselves* still say what §2 and §3
+claim — redaction, both rejections still loud, the empty capture still
+success-shaped, the warning still ahead of `turn.started` — so the prose cannot
+drift away from the traces.
 
-**Both guards were mutation-tested.** Disabling guard 1 turns 4 tests red and
-`repro.py` red; making it fire unconditionally turns a different test red and
-`repro.py` red. The oracles assert in both directions rather than only being
-satisfiable.
+**Mutation-tested, with the numbers as measured.** Six deliberate mutations
+against the shipped version:
+
+| mutation | tests red | `repro.py` |
+|---|---|---|
+| delete the `error` branch | 3 | red |
+| delete the `turn.failed` branch | 3 | red |
+| disable guard 1 | 4 | red |
+| make guard 1 fire unconditionally | 1 | red |
+| disable guard 2 | 2 | red |
+| emit an empty-string event instead of no event | 1 | **green** |
+
+The last row is the honest one. That mutation is inert at the outcome level — a
+`""` event and no event are indistinguishable once the outcome filters empty
+text — so no end-to-end oracle can catch it, and none pretends to. It is caught
+by `test_an_empty_message_produces_no_event_at_all`, which asserts on the parser
+directly, because the distinction still matters: an event that never exists
+cannot be counted, logged, or alerted on by anything downstream.
+
+An earlier revision of this section quoted mutation numbers that were wrong (it
+claimed one test red where two are, and claimed both guards were mutation-tested
+on the strength of guard-1 mutations only). In an entry whose thesis is *assert
+on what it produced*, that is the sort of error worth recording rather than
+quietly correcting.
 
 ## 5. Discrimination and defense
 
@@ -281,9 +334,13 @@ satisfiable.
    and it will do it *after* you have correctly identified and fixed the real
    bug, which is the worst possible time.
 2. **Read the first record of the stream, not the last.** In the rejected
-   capture the CLI names the exact problem in its second line, before the request
-   is even made. The runtime threw it away because it had no branch for that item
-   type. Log unmodelled records at debug rather than dropping them.
+   capture the CLI names *the model string* in its second line, before the
+   request is even made. It does not name the eventual failure — it says the
+   metadata is missing and it will fall back, which reads like a soft
+   degradation notice. But it puts the one variable nobody had looked at for
+   days on screen, unprompted, and the runtime threw it away because it had no
+   branch for that item type. Log unmodelled records at debug rather than
+   dropping them.
 3. **Check the model against the backend before spawning.** Free-text config
    fields that are handed to a subprocess deserve a check that they belong to
    the subprocess.
@@ -366,8 +423,17 @@ exits without ever reading it. The variable that would have caught this was one
 
 **And the third one, on the same path.** `_item_events` returns `[]` for any
 item type it does not model — including `item.type == "error"`, which is exactly
-the record carrying ``Model metadata for `Claude-opus-4-8` not found``. The CLI
-diagnosed the bug in its own output on day one and the runtime deleted it.
+the record carrying ``Model metadata for `Claude-opus-4-8` not found``. Worse,
+it returns `[]` *silently*: the top-level fall-through one function up does at
+least `logger.debug("Unhandled codex event type: %s", kind)`, but the item
+fall-through has no log line at all. The diagnostic advice above is half
+implemented already, and the missing half is the one carrying this record.
+
+Both captures place that record **before `turn.started`** — i.e. before the
+request leaves the client — so it was very likely emitted on the day of the
+incident too. Likely, not certain: no capture from that day exists.
+`test_the_warning_precedes_the_request_on_both_builds` pins the ordering the
+inference rests on.
 
 None of these is exotic. Each is the ordinary shape of consumer code written
 against the happy path: map what you render, ignore what you don't, and treat
@@ -390,15 +456,15 @@ cause, and it would have made all three rings visible on the first day.
 
 ## 中文摘要
 
-**现象**:给 agent 发消息,它「已读不回」。turn 跑 11–30 秒后结束,没有回复,也**没有任何报错**:CLI 退出码 0,事件流以「终态成功」记录收尾,运行时把这一轮标记为完成并放行队列,UI 渲染出一个没有助手消息的完成轮次。整条链路上每一层都报告成功。没有可以 grep 的错误串、没有非零退出、没有栈、没有失败计数——这次故障留下的唯一痕迹是一处**缺席**,而缺席不进日志。崩溃会告诉你去哪儿看,静默的成功什么也不告诉你,而最自然的第一假设「模型自己选择不回答」既合理又完全错误。
+**现象**:给 agent 发消息,它「已读不回」。turn 跑一段时间(`[operator testimony]` 记录为 11–30 秒,无捕获留存)后结束,没有回复,也**没有任何报错**:CLI 退出码 0,事件流以「终态成功」记录收尾,运行时把这一轮标记为完成并放行队列,UI 渲染出一个没有助手消息的完成轮次。整条链路上每一层都报告成功。没有可以 grep 的错误串、没有非零退出、没有栈、没有失败计数——这次故障留下的唯一痕迹是一处**缺席**,而缺席不进日志。崩溃会告诉你去哪儿看,静默的成功什么也不告诉你,而最自然的第一假设「模型自己选择不回答」既合理又完全错误。
 
 **根因(三连环,以下事故叙述均为 `[operator testimony]`,来自操作者当时的诊断记录;两天的终端记录与事件流均未留存)**:同一个症状在六天里被诊断了三次,每次病因都不同——这正是本条目的要点:该症状不是任何单个 bug 的指纹,而是**一整类上游失败经由一条无法表达失败的通道抵达用户**时的指纹。
 - **第一环(07-13)**:agent 配置 `backend: claude-code` + `model: Claude-opus-4-8`,而会话以 **codex** 后端创建(Owlery 允许,因为会话的 backend 是独立字段)。harness 原样把模型名透传:`if ctx.model: argv += ["-m", ctx.model]`。codex 接受了这个 flag,去请求一个在它服务上不存在的模型,turn 便以「终态成功 + 空最终消息 + 零错误事件」结束。**先走的弯路**:先怀疑模型自己不想答——因为从系统能看见的每个角度它都在正常工作,唯一剩下的变量似乎只有模型的判断。
-- **第二环(07-19)**:另一个 agent 用**正确**的模型名出现同样症状,病因是服务端 400「requires a newer version of Codex」(本机 0.142.5 过旧)。**推论比单个 bug 更值钱:任何 Owlery 渲染不出来的服务端拒绝,都长着同一张脸**——因为它们都以「缺席」抵达用户,而缺席之间彼此无法区分。
-- **第三环(07-19)**:`npm install -g` 报成功,症状依旧,`codex --version` 仍是 0.142.5。双安装:升级落在 `/opt/homebrew/bin/codex`(0.144.6),而 PATH 先命中 `~/.local/bin/codex` 这个指向旧版的符号链接。`which codex`(单数)只显示一条路径,并告诉你它没问题。**诊断第一条命令应是 `which -a`,不是 `which`。**
+- **第二环(07-19)**:另一个 agent 用**正确**的模型名出现同样症状,病因是服务端 400「requires a newer version of Codex」(本机 0.142.5 过旧)。**推论比单个 bug 更值钱:我撞到的这两次服务端拒绝长着同一张脸,而机制预示其它的也会**——因为它们都以「缺席」抵达用户,而缺席之间彼此无法区分。两个样本当然不足以支撑全称判断;真正的理由是 §5 里那个**根本不看病因**的消费者侧机制。
+- **第三环(07-19)**:`npm install -g` 报成功,症状依旧,`codex --version` 仍是 0.142.5。双安装:升级落在 `/opt/homebrew/bin/codex`(0.144.6),而 PATH 先命中 `~/.local/bin/codex` 这个符号链接。`which codex`(单数)只显示一条路径,并告诉你它没问题。**诊断第一条命令应是 `which -a`,不是 `which`。** 须说明:文件系统时间戳只证明该符号链接在 10:37 被重写过,**不证明它此前指向何处**——旧安装今天在这台机器上已无任何残留,因此「遮蔽机制」本身仍属口述,时间戳只旁证时点。
 
-**证据等级(两级,不可混用),以及一次「失败的复现」**:*消费者侧缺陷*是 `trace replay`——`repro.py` 用 fake CLI 通过真实管道回放真实捕获的事件流,确定性地重现「被判为成功却什么都没交付」的一轮。但**事故本身复现失败,且这一点被写进了条目**:用事故当天的构建 `0.142.5` 和当前的 `0.144.6` 重跑事故的原始配置,两者**今天都会明确报错**(`error` + `turn.failed`,退出码 1,消息为 400 `The 'Claude-opus-4-8' model is not supported when using Codex with a ChatGPT account.`);同一个 0.142.5 二进制在同一次会话里跑正常 turn 完全正常,所以这不是「拿旧版今天跑」的假象。由此两条结论照实写出:**(a) 当年的静默来自服务端而非 CLI**,旧二进制今天是响的,因此第三环的升级本身并不是修好它的原因;**(b) 本条目不声称、也无法声称对该事故的 live reproduction**——`repro.py` 的 oracle 2 专门断言「今天的拒绝是响的」,把这条**没能复现**的事实固化成断言,防止日后文案悄悄膨胀。空 turn 的捕获样本则是通过「让模型不要输出任何消息」得到的:**同样的形状,不同的成因**,是真实未经编辑的捕获,不是对事故的重建。事故细节(11–30 秒、0 token、空最终消息、误诊顺序、双安装)全部是口述;唯一幸存的物证是文件系统时间戳:0.144.6 装于 07-19 10:18:13,`~/.local/bin/codex` 符号链接在 10:37:04 被重新指向它——那 19 分钟就是第三环。
+**证据等级(两级,不可混用),以及一次「失败的复现」**:*消费者侧缺陷*是 `trace replay`——`repro.py` 用 fake CLI 通过真实管道回放真实捕获的事件流,确定性地重现「被判为成功却什么都没交付」的一轮。但**事故本身复现失败,且这一点被写进了条目**:用事故当天的构建 `0.142.5` 和当前的 `0.144.6` 重跑事故的原始配置,两者**今天都会明确报错**(`error` + `turn.failed`,退出码 1,消息为 400 `The 'Claude-opus-4-8' model is not supported when using Codex with a ChatGPT account.`);同一个 0.142.5 二进制在同一次会话里跑正常 turn 完全正常,所以这不是「拿旧版今天跑」的假象。由此两条结论照实写出:**(a) 事故当年的静默形状在今天的两个构建上都复现不出来,而差异究竟落在哪一侧「未定」**——它与「服务端改了行为」一致(旧二进制今天是响的),这也是我认为最可能的读法,但这些捕获**排除不掉**别的可能:今天跑 0.142.5 用的是一次性 `CODEX_HOME` 加 `--ignore-user-config`,*客户端*配置同样与事故当时不同;账号/套餐状态可能已变;而记录里的「零错误事件」也可能本就是指「Owlery 里什么都没浮现」——而那恰恰是本条目所展示的、消费者对渲染不出的记录所做的事。「未定」同时意味着本条目**不能断言第三环的升级修好了或没修好什么**;在这里指认一个原因,正是仓库明令禁止的「把相关性写成因果」。**(b) 本条目不声称、也无法声称对该事故的 live reproduction**——`repro.py` 的 oracle 2 专门断言「今天的拒绝是响的」,把这条**没能复现**的事实固化成断言,防止日后文案悄悄膨胀。空 turn 的捕获样本则是通过「让模型不要输出任何消息」得到的:**同样的形状,不同的成因**,是真实未经编辑的捕获,不是对事故的重建。事故细节(11–30 秒、0 token、空最终消息、误诊顺序、双安装)全部是口述;唯一幸存的物证是文件系统时间戳:0.144.6 装于 07-19 10:18:13,`~/.local/bin/codex` 符号链接在 10:37:04 被重新指向它——那 19 分钟就是第三环。
 
 **防御**:关键的一行不需要知道任何模型名、版本或供应商——**「终态成功但没有交付任何助手内容」不是成功**,直接判失败并显式报错。它不枚举病因,而是断言不变量,因此第一环、第二环、以及将来的第四环都能接住。代价照实说:该判据以助手**文本**为准,一个合法地「只做工具调用、无话可说」的 turn 会被误报;对聊天形态的 agent 这是正确取舍(用户问了问题却没得到回答),对只靠副作用汇报的自主 worker,应把谓词放宽为「没有产生任何形式的输出」,而不是取消它。
 
-**Owlery 的真实情况——如实报告,两处缺陷截至 2026-07-20 仍然存在**,写成「已修复」很容易,但那是假的:(a) **没有任何地方校验模型名是否属于将要运行它的后端**,`Agent.model` 是自由文本,`Agent.backend` 与 `Session.backend` 是彼此独立的枚举字段,会话可以覆盖后端而模型不跟着走;(b) **成功的 turn 从不被追问它产出了什么**:解析器把 `turn.completed` 无条件映射成非错误的 `result`,而 `if completed and text:` 里空字符串是 falsy,零内容消息**连事件都不会生成**,最终 `turn_failed = saw_error_event or not saw_result` 根本不看内容。最有教益的是那个**擦肩而过**:需要的信号 `saw_text` 就在同一个函数里、每一轮都在计算,却只在 `if turn_failed:` 分支内部被读取(用于决定重试是 resume 还是重跑);成功路径走到 `if saw_result: return` 就退出了,从未读它一眼。那个本可以接住这个 bug 的变量,只差一个 `if`,却待在分支的错误一侧。同一条路径上还有第三处:`_item_events` 对任何它没建模的 item 类型 `return []`——包括 `item.type == "error"`,而那正是承载「Model metadata for \`Claude-opus-4-8\` not found」的记录。**CLI 在第一天就在自己的输出里诊断出了这个 bug,而运行时把它删掉了。** 通用教训:**一条无法表达失败的通道,会把失败报告成成功**;如果你判断「成功」的唯一依据是「没有出现错误」,那么你的解析器没建模的每一个上游问题,都会与一次正常、安静、正确的 turn 无法区分。**要对成功「产出了什么」做断言,而不是对它「没抱怨什么」做断言。** 生产检测:统计「成功结束且零助手输出」的 turn 数——健康系统里这个数约等于零且不会趋势上升,一个计数器,不需要知道任何病因,三个环在第一天就都会可见。
+**Owlery 的真实情况——如实报告,两处缺陷截至 2026-07-20 仍然存在**,写成「已修复」很容易,但那是假的:(a) **没有任何地方校验模型名是否属于将要运行它的后端**,`Agent.model` 是自由文本,`Agent.backend` 与 `Session.backend` 是彼此独立的枚举字段,会话可以覆盖后端而模型不跟着走;(b) **成功的 turn 从不被追问它产出了什么**:解析器把 `turn.completed` 无条件映射成非错误的 `result`,而 `if completed and text:` 里空字符串是 falsy,零内容消息**连事件都不会生成**,最终 `turn_failed = saw_error_event or not saw_result` 根本不看内容。最有教益的是那个**擦肩而过**:需要的信号 `saw_text` 就在同一个函数里、每一轮都在计算,却只在 `if turn_failed:` 分支内部被读取(用于决定重试是 resume 还是重跑);成功路径走到 `if saw_result: return` 就退出了,从未读它一眼。那个本可以接住这个 bug 的变量,只差一个 `if`,却待在分支的错误一侧。同一条路径上还有第三处:`_item_events` 对任何它没建模的 item 类型 `return []`——包括 `item.type == "error"`,而那正是承载「Model metadata for \`Claude-opus-4-8\` not found」的记录;更糟的是它**连日志都不打**:上一层的顶层 fall-through 好歹有一句 `logger.debug("Unhandled codex event type: %s", kind)`,item 这一层什么都没有。这条记录说的其实是「元数据没找到,将回退默认值,可能影响效果」,读起来像一句温和的降级提示,**并没有点名最终的失败**;但它把**那个谁也没去看的模型名**主动打在了输出的第二行,而运行时把它删掉了。两份捕获都显示该记录出现在 `turn.started` **之前**(即请求离开客户端之前),所以事故当天**很可能**也有这一条——是「很可能」不是「确定」:那天没有任何捕获留存。这个次序由 `test_the_warning_precedes_the_request_on_both_builds` 断言固定。 通用教训:**一条无法表达失败的通道,会把失败报告成成功**;如果你判断「成功」的唯一依据是「没有出现错误」,那么你的解析器没建模的每一个上游问题,都会与一次正常、安静、正确的 turn 无法区分。**要对成功「产出了什么」做断言,而不是对它「没抱怨什么」做断言。** 生产检测:统计「成功结束且零助手输出」的 turn 数——健康系统里这个数约等于零且不会趋势上升,一个计数器,不需要知道任何病因,三个环在第一天就都会可见。

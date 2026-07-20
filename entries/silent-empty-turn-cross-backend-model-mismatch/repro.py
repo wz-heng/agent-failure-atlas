@@ -64,14 +64,16 @@ class Outcome:
     verdict: str                   # "success" | "failed"
     delivered: list[str] = field(default_factory=list)   # what the user sees
     surfaced_errors: list[str] = field(default_factory=list)
+    surfaced_warnings: list[str] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)    # records the parser modelled nothing for
+    debug_logged: list[str] = field(default_factory=list)  # dropped, but at least logged
     exit_code: int = 0
 
 
 # --- parser: codex JSONL -> events.  Transcribed from server/harness/codex.py
 #     (Owlery, private) as it stands on 2026-07-20.
 
-def parse_shipped(obj: dict, dropped: list[dict]) -> list[Event]:
+def parse_shipped(obj: dict, out: Outcome) -> list[Event]:
     kind = obj.get("type")
 
     if kind == "thread.started":
@@ -109,12 +111,18 @@ def parse_shipped(obj: dict, dropped: list[dict]) -> list[Event]:
 
         # agent_message is the only item type this reproduction needs to model;
         # Owlery models several more (reasoning, command_execution, file_*, …).
-        # What matters here is the fall-through both share: an item type with no
-        # branch returns [] and is gone.
-        dropped.append(obj)
+        # What matters here is the fall-through they share: an item type with no
+        # branch returns [] and is gone — with no log line of any kind.
+        out.dropped.append(obj)
         return []
 
-    dropped.append(obj)
+    # The asymmetry is worth transcribing. Owlery's TOP-LEVEL fall-through logs:
+    #     logger.debug("Unhandled codex event type: %s", kind)
+    # while `_item_events` ends in a bare `return []`. So an unmodelled *event*
+    # leaves a trace at debug level; an unmodelled *item* leaves none — and the
+    # record carrying the model warning is an item.
+    out.dropped.append(obj)
+    out.debug_logged.append(str(kind))
     return []
 
 
@@ -134,7 +142,7 @@ def drive_turn(argv: list[str], policy: str) -> Outcome:
         except json.JSONDecodeError:
             continue
 
-        for ev in parse_shipped(obj, out.dropped):
+        for ev in parse_shipped(obj, out):
             if ev.type == "text" and ev.content.strip():
                 out.delivered.append(ev.content)
             if ev.type == "result":
@@ -158,13 +166,15 @@ def drive_turn(argv: list[str], policy: str) -> Outcome:
                 "success but produced no message; the request was accepted and "
                 "silently answered with nothing."
             )
-        # Guard 2 — item types the parser models nothing for are surfaced as
-        # warnings rather than discarded.
+        # Guard 2 — records the parser models nothing for are surfaced as
+        # warnings rather than discarded. They are warnings, not errors: they
+        # never change the verdict, and they go in their own list so an oracle
+        # looking for a real error cannot be satisfied by one of these.
         for obj in out.dropped:
             item = obj.get("item") or {}
             msg = item.get("message") or item.get("text")
             if msg:
-                out.surfaced_errors.append(f"[unmodelled {item.get('type')!r} item] {msg}")
+                out.surfaced_warnings.append(f"[unmodelled {item.get('type')!r} item] {msg}")
 
     out.verdict = "failed" if turn_failed else "success"
     return out
@@ -254,15 +264,17 @@ def oracle_2_todays_rejection_is_loud() -> None:
         out = drive_turn(fake_cli(name), policy="shipped")
         check(f"{version}: verdict", out.verdict, "failed")
         check(f"{version}: CLI exit code", out.exit_code, 1)
-        if not any("not supported when using Codex" in e for e in out.surfaced_errors):
-            raise OracleFailure(
-                f"{version}: expected the 400 rejection text to be surfaced; "
-                f"got {out.surfaced_errors!r}")
-        print(f"    ok  {version}: the 400 rejection reaches the user")
+        # Counted, not `any()`. The stream carries the 400 twice — once as a
+        # standalone `error` record and once inside `turn.failed` — and those
+        # are two independent branches of the consumer. With `any()`, deleting
+        # either branch left every oracle green; a review caught it by mutation.
+        hits = sum("not supported when using Codex" in e for e in out.surfaced_errors)
+        check(f"{version}: both error paths surface the 400", hits, 2)
 
 
 def oracle_3_the_early_warning_is_dropped() -> None:
-    print("\n[3] The CLI's own early warning never reaches the user.")
+    print("\n[3] The CLI's own early warning never reaches the user — and is "
+          "not even logged.")
     out = drive_turn(fake_cli("rejected_0_144_6"), policy="shipped")
     warnings = [o for o in out.dropped
                 if (o.get("item") or {}).get("type") == "error"]
@@ -271,10 +283,14 @@ def oracle_3_the_early_warning_is_dropped() -> None:
           warnings[0]["item"]["message"],
           "Model metadata for `Claude-opus-4-8` not found. Defaulting to "
           "fallback metadata; this can degrade performance and cause issues.")
-    if any("Model metadata" in e for e in out.surfaced_errors):
+    if any("Model metadata" in e for e in
+           out.surfaced_errors + out.surfaced_warnings):
         raise OracleFailure("the warning was surfaced; the shipped parser drops it")
-    print("    -> the CLI names the exact problem in its first record, and the "
-          "parser has no branch for that item type, so it is discarded.")
+    # The item fall-through has no log line, unlike the top-level one.
+    check("debug-logged records", out.debug_logged, [])
+    print("    -> the CLI names the model string in its first record — the one "
+          "variable nobody looked at — and the parser has no branch for that "
+          "item type, so it is dropped without so much as a debug line.")
 
 
 def oracle_4_the_defense() -> None:
@@ -295,8 +311,10 @@ def oracle_4_the_defense() -> None:
 
     out = drive_turn(fake_cli("rejected_0_144_6"), policy="defended")
     check("rejected turn still fails", out.verdict, "failed")
-    if not any("Model metadata" in e for e in out.surfaced_errors):
+    if not any("Model metadata" in w for w in out.surfaced_warnings):
         raise OracleFailure("guard 2 should surface the dropped warning item")
+    check("the warning stayed a warning, not an error",
+          any("Model metadata" in e for e in out.surfaced_errors), False)
     print("    ok  the dropped warning is now surfaced too")
 
 

@@ -4,10 +4,16 @@
     python3 test_defense.py            # standalone
     python3 -m pytest test_defense.py -q
 
-Offline, stdlib only, ~2s. Tests 1-9 and 13-15 run against the real captures in
-evidence/. Tests 10-12 run against *synthetic* streams covering shapes the
-corpus does not contain — they are unit tests of the guard, and are never cited
-as evidence about the vendor.
+Offline, stdlib only, ~1.2s. Which tests touch what, stated by name rather than
+by index so it cannot go stale:
+
+* **Real captures** from evidence/ — everything under "the bug, pinned",
+  "the fix", "the dropped warning" and "the evidence itself".
+* **Synthetic streams** — the three tests under "shapes the corpus does not
+  contain". They are hand-written unit tests of the guard, covering shapes no
+  capture happens to exhibit. They are never cited as evidence about the vendor,
+  and `_synthetic_cli` is the only thing that builds them.
+* **No stream at all** — the four attribution tests, which are pure functions.
 """
 
 from __future__ import annotations
@@ -17,7 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from repro import EVIDENCE, TRACES, attribute_model, drive_turn, fake_cli
+from repro import (EVIDENCE, TRACES, Outcome, attribute_model, drive_turn,
+                   fake_cli, parse_shipped)
 
 HERE = Path(__file__).resolve().parent
 
@@ -50,6 +57,27 @@ def test_shipped_policy_swallows_a_zero_content_turn():
     assert out.surfaced_errors == []
 
 
+def test_an_empty_message_produces_no_event_at_all():
+    """The transcribed `if completed and text:` line, pinned directly.
+
+    This matters beyond "the user sees nothing": the empty message does not
+    become a suppressed-but-present event, it never exists. Nothing downstream
+    — no counter, no log, no metric — can see that a message arrived and was
+    empty. Asserted on the parser rather than on the outcome, because at the
+    outcome level a "" event and no event are indistinguishable.
+    """
+    out = Outcome(verdict="")
+    empty = {"type": "item.completed",
+             "item": {"id": "item_0", "type": "agent_message", "text": ""}}
+    assert parse_shipped(empty, out) == []
+    nonempty = {"type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": "OK"}}
+    assert [e.content for e in parse_shipped(nonempty, out)] == ["OK"]
+    # ...and it is not routed to the unmodelled-record path either, so guard 2
+    # cannot accidentally rescue it. Only guard 1 catches this.
+    assert out.dropped == []
+
+
 def test_shipped_policy_leaves_the_user_with_literally_nothing():
     """Not just 'no text' — no error, no warning, no non-zero exit either.
 
@@ -77,41 +105,68 @@ def test_defended_policy_does_not_break_a_good_turn():
 
 
 def test_defended_policy_does_not_change_the_loud_path():
-    """The guard must not turn a already-diagnosable failure into a different one."""
+    """The guard must not turn an already-diagnosable failure into a different one."""
     for name in ("rejected_0_144_6", "rejected_0_142_5"):
         shipped = drive_turn(fake_cli(name), policy="shipped")
         defended = drive_turn(fake_cli(name), policy="defended")
         assert shipped.verdict == defended.verdict == "failed", name
-        assert any("not supported when using Codex" in e
-                   for e in defended.surfaced_errors), name
+        # Counted: the 400 arrives twice, via two independent consumer branches
+        # (a standalone `error` record and `turn.failed`). `any()` here let
+        # either branch be deleted with every test still green.
+        assert shipped.surfaced_errors == defended.surfaced_errors, name
+        assert sum("not supported when using Codex" in e
+                   for e in defended.surfaced_errors) == 2, name
         # The empty-turn guard must NOT have fired here: this turn failed for a
         # reason the system already knew.
         assert not any("no assistant output" in e
                        for e in defended.surfaced_errors), name
 
 
+def test_each_error_record_reaches_the_user_on_its_own_path():
+    """Pins that BOTH transcribed error branches fire, not just one of them.
+
+    The `error` record and the `turn.failed` record carry identical text, so a
+    membership check cannot tell whether one branch has stopped working.
+    """
+    out = drive_turn(fake_cli("rejected_0_144_6"), policy="shipped")
+    assert len(out.surfaced_errors) == 2
+    assert out.surfaced_errors[0] == out.surfaced_errors[1]
+
+
 # --- the dropped warning --------------------------------------------------
 
 def test_the_shipped_parser_drops_the_cli_s_own_warning():
     out = drive_turn(fake_cli("rejected_0_144_6"), policy="shipped")
-    assert not any("Model metadata" in e for e in out.surfaced_errors)
+    assert not any("Model metadata" in e
+                   for e in out.surfaced_errors + out.surfaced_warnings)
     dropped = [o for o in out.dropped if (o.get("item") or {}).get("type") == "error"]
     assert len(dropped) == 1
     assert "Model metadata for `Claude-opus-4-8` not found" in dropped[0]["item"]["message"]
+    # Dropped without even a debug line: the item fall-through, unlike the
+    # top-level one, logs nothing.
+    assert out.debug_logged == []
 
 
-def test_the_defense_surfaces_the_dropped_warning():
+def test_the_defense_surfaces_the_dropped_warning_as_a_warning():
     out = drive_turn(fake_cli("rejected_0_144_6"), policy="defended")
-    assert any("Model metadata for `Claude-opus-4-8` not found" in e
-               for e in out.surfaced_errors)
+    assert any("Model metadata for `Claude-opus-4-8` not found" in w
+               for w in out.surfaced_warnings)
+    # It must not become an error: it never changes the verdict, and an oracle
+    # looking for a real error must not be satisfiable by a warning.
+    assert not any("Model metadata" in e for e in out.surfaced_errors)
 
 
-def test_both_cli_versions_emit_the_same_warning():
-    """The warning is not a 0.144.6 novelty — 0.142.5 emitted it too, which
-    means it was available on the day of the incident and still went unread."""
+def test_both_cli_versions_emit_the_same_warning_today():
+    """The warning is not a 0.144.6 novelty — 0.142.5 emits it too.
+
+    It is written before `turn.started`, i.e. before the request leaves the
+    client, which makes it *likely* the same record was emitted on the day of
+    the incident. No capture from that day exists, so this test pins what the
+    two builds do today and nothing more.
+    """
     for name in ("rejected_0_144_6", "rejected_0_142_5"):
         out = drive_turn(fake_cli(name), policy="defended")
-        assert any("Model metadata" in e for e in out.surfaced_errors), name
+        assert any("Model metadata" in w for w in out.surfaced_warnings), name
 
 
 # --- shapes the corpus does not contain (SYNTHETIC) -----------------------
@@ -197,6 +252,22 @@ def test_todays_rejection_is_loud_on_both_versions():
         assert "error" in kinds, trace
         assert "turn.failed" in kinds, trace
         assert "turn.completed" not in kinds, trace
+
+
+def test_the_warning_precedes_the_request_on_both_builds():
+    """Load-bearing for §2's claim that the warning is client-side.
+
+    The entry says the CLI names the model string *before the request leaves
+    the client*. That is only true if the warning record precedes
+    `turn.started`, so assert the ordering rather than trusting the prose.
+    """
+    for trace in ("codex_0.144.6_model_rejected.jsonl",
+                  "codex_0.142.5_model_rejected.jsonl"):
+        records = [json.loads(l) for l in (EVIDENCE / trace).read_text().splitlines() if l.strip()]
+        warn = next(i for i, r in enumerate(records)
+                    if (r.get("item") or {}).get("type") == "error")
+        started = next(i for i, r in enumerate(records) if r.get("type") == "turn.started")
+        assert warn < started, trace
 
 
 def test_the_zero_content_capture_really_is_a_success_shaped_stream():
