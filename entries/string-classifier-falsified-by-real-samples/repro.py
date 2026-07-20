@@ -9,17 +9,18 @@ Self-contained: imports nothing from Owlery. Standard library only.
 
 WHAT IS AND IS NOT CLAIMED HERE
 -------------------------------
-Claimed: the HTTP status code carries no signal (429 on all four samples), and
-a classifier keyed on GENERIC rate-limit vocabulary ("rate limit", "429",
-"quota", "usage limit") cannot separate the claude pair — every such token in
-the user-limit sample also occurs in the server-throttle sample.
+Claimed: the HTTP status code is not a usable discriminator — it is 429 on BOTH
+sides of the claude pair, and absent entirely from codex's real usage limit —
+and the one fixed vocabulary in oracle 2 ("rate limit", "429", "quota", "usage
+limit") misclassifies these traces.
 
-NOT claimed: that no substring classifier can separate them. One can. Oracle 2
-exhibits a hand-tuned pair of substrings that classifies all four samples
-correctly. The case against prose matching is FRAGILITY — those strings are
-localized, rendered output that changes with locale, plan tier and release —
-not impossibility. An earlier revision of this entry overstated it as a proof;
-that overreach is documented in the entry README as its own small lesson.
+NOT claimed: that substring matching cannot work here, or that no vocabulary
+could be found that does. One can — oracle 3 exhibits a hand-tuned pair of
+substrings that classifies all four traces correctly. The case against prose
+matching is FRAGILITY: those strings are localized, rendered output that changes
+with locale, plan tier and release. An earlier revision of this entry claimed
+impossibility and shipped a "proof" whose vocabulary had been chosen to exclude
+the counterexample; that overreach is documented in the entry README.
 
 The three-way disposition below mirrors Owlery's real failed-turn taxonomy
 (harness-transient-retry.md §2 + limit-auto-resume.md §2), not a simplification:
@@ -288,30 +289,9 @@ def oracle_generic_vocabulary_fails(streams) -> list[str]:
         print(f"      {mark}  {filename:<28} want={want:<8} got={got}")
     print("      -> answers 'park' to all four: no discriminating power.")
 
-    # And the reason it cannot be repaired by adding vocabulary: over the
-    # rate-limit lexicon, the claude pair's texts are not separable, because
-    # every such token in the limit sample is also in the throttle sample.
-    lexicon = (
-        "rate limit", "rate-limit", "rate_limit", "ratelimit",
-        "429", "too many requests",
-        "quota", "usage limit", "limit reached", "limit exceeded",
-        "exceeded", "limit", "throttl", "capacity",
-    )
-    user_text = streams["claude_user_limit_5h.jsonl"][0].lower()
-    throttle_text = streams["claude_server_429.jsonl"][0].lower()
-    separating = {t for t in lexicon if t in user_text} - {
-        t for t in lexicon if t in throttle_text
-    }
-    print(f"      lexicon tokens unique to the claude user-limit text: "
-          f"{sorted(separating) or '(none)'}")
-    if separating:
-        failures.append(
-            f"a rate-limit lexicon token DOES separate the claude pair "
-            f"({sorted(separating)}); the entry's wording must be corrected."
-        )
-
     # The negation trap: the throttle text contains "usage limit" only inside
     # "(not your usage limit)". Substring matching cannot see negation.
+    throttle_text = streams["claude_server_429.jsonl"][0].lower()
     if "not your usage limit" not in throttle_text:
         failures.append("the '(not your usage limit)' negation is gone")
     else:

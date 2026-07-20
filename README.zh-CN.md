@@ -24,7 +24,7 @@
 
 | # | 失效模式 | 现象 | 证据等级 | 影响 | 修复 |
 |---|---|---|---|---|---|
-| 1 | [限额判别被真实样本证伪](entries/string-classifier-falsified-by-real-samples/) | 配额耗尽与服务端限流以相同的 HTTP 429 抵达,且限流那条的限额词汇比真实限额还多 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 会话无人值守地死上数小时;或因两秒的抖动空挂五小时 | 分后端:Claude 用结构字段(`rateLimitType` + `resetsAt`);Codex 无此字段,改用经正负两类真实 trace 固定的字符串 marker,纪元则从 rollout 按结构读取 |
+| 1 | [限额判别被真实样本证伪](entries/string-classifier-falsified-by-real-samples/) | Claude 侧配额耗尽与服务端限流均为 HTTP 429,且限流那条的限额词汇比真实限额还多;Codex 侧真实限额流中则完全没有 429 | ![trace replay](https://img.shields.io/badge/evidence-trace%20replay-blue) | 会话无人值守地死上数小时;或因两秒的抖动空挂五小时 | 分后端:Claude 用结构字段(`rateLimitType` + `resetsAt`);Codex 无此字段,改用经正负两类真实 trace 固定的字符串 marker,纪元则从 rollout 按结构读取 |
 
 后续条目在各自证据成熟后逐条发布,不攒批。
 

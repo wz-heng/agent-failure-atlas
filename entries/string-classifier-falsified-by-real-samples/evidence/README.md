@@ -56,8 +56,13 @@ Applied mechanically to the original captures. Removed:
 - **Local paths** — `cwd`, `memory_paths`, and plugin install paths dropped.
 - **Machine inventory** — on claude's `init` record, the `tools`,
   `slash_commands`, `skills`, `agents`, `plugins`, `mcp_servers`, and
-  `capabilities` arrays dropped. These describe one laptop's configuration and
-  have no bearing on how a CLI reports a limit.
+  `capabilities` arrays dropped, along with the `output_style` field. These
+  describe one laptop's configuration and have no bearing on how a CLI reports
+  a limit.
+
+  The complete set of keys dropped from `init`, so the check below reproduces
+  exactly: `tools`, `mcp_servers`, `slash_commands`, `agents`, `skills`,
+  `plugins`, `memory_paths`, `cwd`, `capabilities`, `output_style`.
 - **Whole records: `hook_started` / `hook_response`.** These carried a large
   local hook payload (this machine's agent configuration). They occur before
   any request is made and contain no limit state.
@@ -79,11 +84,20 @@ Two checks anyone can run without access to the originals:
 - **The epochs are real and self-consistent.** `resetsAt: 1784038967` renders to
   2026-07-14 22:22 +08:00, matching the `resets 10:22pm (Asia/Shanghai)` in the
   prose of the same record — a value the CLI rendered from that epoch.
-- **The identifier mapping is bijective.** Collect every `session_id`, `uuid`,
-  `hook_id`, `thread_id` and message `id` in a file; the count of distinct
-  values equals the count of distinct placeholders (6, 6, 1, 1 across the four
-  files). A collapsing redaction would show fewer placeholders than values.
+- **Placeholder distinctness and consistent reuse.** Collect every `session_id`,
+  `uuid`, `hook_id`, `thread_id` and message `id`: the shipped files carry 6, 6,
+  1 and 1 distinct placeholders respectively, and each placeholder recurs only
+  where the same entity is referenced. This shows the shipped files did not
+  collapse everything onto one token — it does **not**, on its own, prove the
+  mapping is injective, since two distinct placeholders could in principle have
+  come from one original value. Only the originals settle that.
 
-Anyone holding the originals can verify the stronger property directly: strip
-every identifier field and the dropped keys from both the original and the
-shipped file, and the remaining structures compare equal.
+Two properties genuinely require the originals, and are stated here so a
+reviewer who has them knows exactly what to run:
+
+- **The mapping is bijective** — each distinct original identifier maps to its
+  own placeholder (constructed in first-seen order, so this holds by
+  construction, and is asserted during generation).
+- **Redaction was reduction only** — strip every identifier field and the ten
+  dropped `init` keys listed above from both the original and the shipped file;
+  the remaining structures compare equal, on all four files.

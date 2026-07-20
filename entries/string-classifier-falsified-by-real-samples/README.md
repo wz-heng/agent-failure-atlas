@@ -207,10 +207,10 @@ Four machine-checked oracles:
 1. **The status code is not a discriminator** — the exact per-trace presence of
    `429`, asserted. Present on both sides of the claude pair; absent from
    codex's real limit. Fails in both directions.
-2. **Generic vocabulary is not a discriminator** — the illustrative classifier's
+2. **One fixed generic vocabulary fails** — the illustrative classifier's
    verdicts on all four traces, asserted exactly. It answers "park" to every one,
-   including both throttles. Plus the lexicon-overlap computation showing why
-   adding more rate-limit terminology does not repair it.
+   including both throttles. This is a counterexample against that vocabulary,
+   not a claim about substring matching in general.
 3. **Prose matching is possible but fragile** — the honesty oracle. It exhibits
    two hand-tuned substrings that classify all four traces *correctly*, so the
    entry cannot quietly regrow the impossibility claim it got wrong once.
